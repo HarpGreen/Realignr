@@ -436,3 +436,8 @@ DISTFILES += \
     ../lib/eigen-5.0.0/Eigen/src/plugins/MatrixCwiseUnaryOps.inc \
     ../lib/eigen-5.0.0/Eigen/src/plugins/ReshapedMethods.inc \
     visualize/visualize.py
+
+RESOURCES += \
+    resources.qrc
+
+RC_FILE += appicon.rc

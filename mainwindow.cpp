@@ -18,6 +18,7 @@ MainWindow::MainWindow(QWidget *parent)
     char title[128];
     sprintf(title, "Realignr - v%d.%d.%d", VERSION[0],VERSION[1],VERSION[2]);
     setWindowTitle(title);
+    setWindowIcon(QIcon(":/icons/Realignr.ico"));
     resize(800, 500);
 
     // 初始化时禁用代码生成板块
