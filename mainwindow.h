@@ -1,0 +1,123 @@
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
+
+#include "least_squares.h"
+
+#include <QMainWindow>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QComboBox>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QLabel>
+#include <QTextEdit>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QFileDialog>
+#include <vector>
+
+constexpr int VERSION[3] = {1,0,0};
+
+//点定义
+using Point3D = LeastSquaresSolver::Point3D;
+
+//加工点定义，包含加工方向和其他加工信息
+struct ProcessPoint {
+    double x, y, z;
+    double i, j, k;                 //加工方向单位向量
+    double duration;                //加工时间，由用户在软件之外自行算出，比如excel
+    int processMethodSelection;     //选择用户输入的加工过程，<0代表没有加工过程，
+                                    //==0代表默认G04等待，>1的数表示选择用户输入的内容
+    QString comment;                //备注，保留在点加工后面，以便在加工过程中判断是哪个点
+};
+
+
+
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
+
+private slots:
+    // 坐标映射Tab槽函数
+    void onModelImportClicked();            //理论参考点坐标导入
+    void onModelClearClicked();
+    void onActualImportClicked();           //实测参考点坐标导入
+    void onActualClearClicked();
+    void onCalculateClicked();              //计算矩阵键
+    void onVerifyClicked();                 //验证计算键
+
+    // 代码生成Tab槽函数
+    void onProcessPointsImportClicked();    //加工点导入键
+    void onProcessPointsClearClicked();
+    void onGenerateCodeClicked();           //开始生成G代码键
+
+private:
+    void setupCoordinateMappingTab();       //绘制 坐标映射 Tab
+    void setupTransformationMatrixTable();  //  绘制 转换矩阵显示框
+    void setupCodeGenerationTab();          //绘制 代码生成 Tab
+
+
+    ///////////////////////////// 坐标映射Tab组件
+    QTabWidget *tabWidget;
+
+    // 左侧模型坐标区域
+    QTextEdit *modelPointsText;
+    QPushButton *modelImportBtn;
+    QPushButton *modelClearBtn;
+
+    // 右侧实际坐标区域
+    QTextEdit *actualPointsText;
+    QPushButton *actualImportBtn;
+    QPushButton *actualClearBtn;
+
+    // 计算区域
+    QComboBox *algorithmCombo;
+    QPushButton *calculateBtn;
+    QTableWidget *matrixTable;
+    QLineEdit *verifyInput;
+    QPushButton *verifyBtn;
+    QTextEdit *verifyResult;
+
+
+    ///////////////////////////// 代码生成Tab组件
+    QTextEdit *processPointsText;
+    QPushButton *processImportBtn;
+    QPushButton *processClearBtn;
+    QLineEdit *axisDefinition;
+    QLineEdit *fileNameInput;
+    QPushButton *generateBtn;
+
+
+    // 数据
+    std::vector<Point3D> modelPoints;
+    std::vector<Point3D> actualPoints;
+    std::vector<ProcessPoint> processPoints;
+
+    // 转换矩阵
+    LeastSquaresSolver::TransformationMatrix transformationMatrix;
+
+    // 工具函数
+    std::vector<Point3D> parsePointsFromText(const QString& text);      //多行解析点
+    std::vector<ProcessPoint> parseProcessPoints(const QString& text);  //多行解析加工点
+    QString cleanCoordinateString(const QString& input);
+    // 控制代码生成板块的激活状态
+    void setCodeGenerationEnabled(bool enabled);
+
+    // 导入功能辅助函数
+    bool importPointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<Point3D>& points);
+    bool importProcessPointsFromCSV(const QString& fileName);
+
+    // 可视化
+    virtual bool visualizeProcessPoints() = delete;
+
+    // Gcode生成
+    QString generateGCode(const std::vector<ProcessPoint>& points, const QString& axisDef);
+    QString convertDirectionToRotation(double i, double j, double k, const QString& axisDef);
+};
+
+#endif // MAINWINDOW_H
