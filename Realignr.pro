@@ -10,11 +10,14 @@ CONFIG += c++17
 
 SOURCES += \
     least_squares.cpp \
+    icp.cpp \
     main.cpp \
     mainwindow.cpp \
-    setupUI.cpp
+    setupUI.cpp \
+    OM5A.cpp
 
 HEADERS += \
+    OM5A.h \
     ../lib/eigen-5.0.0/Eigen/AccelerateSupport \
     ../lib/eigen-5.0.0/Eigen/Cholesky \
     ../lib/eigen-5.0.0/Eigen/CholmodSupport \
@@ -419,6 +422,7 @@ HEADERS += \
     ../lib/eigen-5.0.0/Eigen/src/plugins/InternalHeaderCheck.inc \
     least_squares.h \
     mainwindow.h \
+    OM5A.h \
     visualizeParams.h
 
 FORMS +=

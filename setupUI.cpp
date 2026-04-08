@@ -4,9 +4,114 @@
 #include <sstream>
 #include <iomanip>
 
-//************ TAB： COODS MAP *****************
+//************ TAB： MACHINE PARAMS *****************
+
+void MainWindow::setupMachineParametersTab()
+{
+    QWidget *machineTab = new QWidget;
+    QVBoxLayout *mainLayout = new QVBoxLayout(machineTab);
+
+    // 轴定义区域
+    QGroupBox *axisGroup = new QGroupBox("轴定义");
+    QVBoxLayout *axisLayout = new QVBoxLayout(axisGroup);
+
+    axisLayout->addWidget(new QLabel("机床形式:"));
+    machineTypeCombo = new QComboBox;
+    machineTypeCombo->addItem("请选择机床形式");
+    machineTypeCombo->addItem("XYZAC");
+    machineTypeCombo->addItem("XYZBC");
+    machineTypeCombo->setCurrentIndex(0);
+    axisLayout->addWidget(machineTypeCombo);
+
+    axisLayout->addWidget(new QLabel("机床轴名称:"));
+    machineAxisLabels = new QLineEdit;
+    machineAxisLabels->setText("x,y,z,a,c");
+    machineAxisLabels->setPlaceholderText("输入轴名称，如: x,y,z,a,c");
+    axisLayout->addWidget(machineAxisLabels);
+
+    // 旋转中心区域
+    QGroupBox *rotationGroup = new QGroupBox("五轴旋转中心");
+    QVBoxLayout *rotationLayout = new QVBoxLayout(rotationGroup);
+
+    // 创建左右两列布局
+    QHBoxLayout *columnsLayout = new QHBoxLayout;
+
+    // 左侧列：cx, cy, cz
+    QVBoxLayout *leftColumn = new QVBoxLayout;
+    
+    QHBoxLayout *cxLayout = new QHBoxLayout;
+    cxLayout->addWidget(new QLabel("CX:"));
+    rotationCenterCX = new QLineEdit;
+    rotationCenterCX->setText("0.0");
+    rotationCenterCX->setPlaceholderText("旋转中心CX");
+    cxLayout->addWidget(rotationCenterCX);
+    leftColumn->addLayout(cxLayout);
+
+    QHBoxLayout *cyLayout = new QHBoxLayout;
+    cyLayout->addWidget(new QLabel("CY:"));
+    rotationCenterCY = new QLineEdit;
+    rotationCenterCY->setText("0.0");
+    rotationCenterCY->setPlaceholderText("旋转中心CY");
+    cyLayout->addWidget(rotationCenterCY);
+    leftColumn->addLayout(cyLayout);
+
+    QHBoxLayout *czLayout = new QHBoxLayout;
+    czLayout->addWidget(new QLabel("CZ:"));
+    rotationCenterCZ = new QLineEdit;
+    rotationCenterCZ->setText("0.0");
+    rotationCenterCZ->setPlaceholderText("旋转中心CZ");
+    czLayout->addWidget(rotationCenterCZ);
+    leftColumn->addLayout(czLayout);
+
+    // 右侧列：dx, dy, dz
+    QVBoxLayout *rightColumn = new QVBoxLayout;
+
+    QHBoxLayout *dxLayout = new QHBoxLayout;
+    dxLayout->addWidget(new QLabel("DX:"));
+    rotationCenterDX = new QLineEdit;
+    rotationCenterDX->setText("0.0");
+    rotationCenterDX->setPlaceholderText("旋转中心DX");
+    dxLayout->addWidget(rotationCenterDX);
+    rightColumn->addLayout(dxLayout);
+
+    QHBoxLayout *dyLayout = new QHBoxLayout;
+    dyLayout->addWidget(new QLabel("DY:"));
+    rotationCenterDY = new QLineEdit;
+    rotationCenterDY->setText("0.0");
+    rotationCenterDY->setPlaceholderText("旋转中心DY");
+    dyLayout->addWidget(rotationCenterDY);
+    rightColumn->addLayout(dyLayout);
+
+    QHBoxLayout *dzLayout = new QHBoxLayout;
+    dzLayout->addWidget(new QLabel("DZ:"));
+    rotationCenterDZ = new QLineEdit;
+    rotationCenterDZ->setText("0.0");
+    rotationCenterDZ->setPlaceholderText("旋转中心DZ");
+    dzLayout->addWidget(rotationCenterDZ);
+    rightColumn->addLayout(dzLayout);
+
+    // 添加左右两列到主布局
+    columnsLayout->addLayout(leftColumn);
+    columnsLayout->addLayout(rightColumn);
+    rotationLayout->addLayout(columnsLayout);
+
+    // 添加到主布局
+    mainLayout->addWidget(axisGroup);
+    mainLayout->addWidget(rotationGroup);
+
+    saveMachineParamsBtn = new QPushButton("保存参数");
+    saveMachineParamsBtn->setMinimumHeight(36);
+    mainLayout->addWidget(saveMachineParamsBtn);
+    mainLayout->addStretch();
+
+    tabWidget->addTab(machineTab, "机床参数");
+}
+
+
+//************ TAB： COORDS MAP *****************
 
 void MainWindow::setupCoordinateMappingTab()
+
 {
     QWidget *coordTab = new QWidget;
     QHBoxLayout *mainLayout = new QHBoxLayout(coordTab);
@@ -50,6 +155,7 @@ void MainWindow::setupCoordinateMappingTab()
     algoLayout->addWidget(new QLabel("算法:"));
     algorithmCombo = new QComboBox;
     algorithmCombo->addItem("最小二乘 Ax=B");
+    algorithmCombo->addItem("点云精配准 ICP");
     algoLayout->addWidget(algorithmCombo);
     calculateBtn = new QPushButton("计算转换矩阵");
     algoLayout->addWidget(calculateBtn);
@@ -140,7 +246,7 @@ void MainWindow::setupCodeGenerationTab()
     QVBoxLayout *pointsLayout = new QVBoxLayout(pointsGroup);
 
     processPointsText = new QTextEdit;
-    processPointsText->setPlaceholderText("输入模型提取的加工点坐标，每行一个点，格式: x,y,z,angle1,angle2,angle3,附加信息\n例如:\n0,0,0,0,0,0,程序1,10s\n50,50,0,45,0,0,程序2,15s");
+    processPointsText->setPlaceholderText("输入模型提取的加工点坐标，每行一个点，格式: x,y,z,i,j,k,附加信息\n例如:\n0,0,0,0,0,0,程序1,10s\n50,50,0,45,0,0,程序2,15s");
     pointsLayout->addWidget(processPointsText); // 去掉高度限制
 
     QHBoxLayout *pointsBtnLayout = new QHBoxLayout;
@@ -153,13 +259,6 @@ void MainWindow::setupCodeGenerationTab()
     // 右侧设置区域
     QGroupBox *settingsGroup = new QGroupBox("代码生成设置");
     QVBoxLayout *settingsLayout = new QVBoxLayout(settingsGroup);
-
-    // 五轴定义
-    settingsLayout->addWidget(new QLabel("五轴定义:"));
-    axisDefinition = new QLineEdit;
-    axisDefinition->setText("x,y,z,a,c");
-    axisDefinition->setPlaceholderText("输入轴定义，如: x,y,z,a,c");
-    settingsLayout->addWidget(axisDefinition);
 
     // 文件名称
     settingsLayout->addWidget(new QLabel("输出文件:"));
@@ -197,4 +296,5 @@ void MainWindow::setupCodeGenerationTab()
             fileNameInput->setText(fileName);
         }
     });
+    connect(saveMachineParamsBtn, &QPushButton::clicked, this, &MainWindow::onSaveMachineParametersClicked);
 }

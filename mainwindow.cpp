@@ -8,9 +8,11 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , mill_p(nullptr)
 {
     tabWidget = new QTabWidget(this);
 
+    setupMachineParametersTab();
     setupCoordinateMappingTab();
     setupCodeGenerationTab();
 
@@ -21,12 +23,17 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowIcon(QIcon(":/icons/Realignr.ico"));
     resize(800, 500);
 
-    // 初始化时禁用代码生成板块
-    setCodeGenerationEnabled(false);
+    // 初始化时禁用后续Tab
+    tabWidget->setTabEnabled(1, false);
+    tabWidget->setTabEnabled(2, false);
 }
 
 MainWindow::~MainWindow()
 {
+    if (mill_p) {
+        delete mill_p;
+        mill_p = nullptr;
+    }
 }
 
 // 坐标映射Tab槽函数
@@ -62,6 +69,92 @@ void MainWindow::onActualClearClicked()
     actualPoints.clear();
 }
 
+void MainWindow::onSaveMachineParametersClicked()
+{
+    if (machineTypeCombo->currentIndex() == 0) {
+        QMessageBox::warning(this, "错误", "请选择机床形式");
+        return;
+    }
+
+    QString axisText = machineAxisLabels->text().trimmed();
+    QStringList axisLabels = axisText.split(',', Qt::SkipEmptyParts);
+    if (axisLabels.size() != 5) {
+        QMessageBox::warning(this, "错误", "请输入5个轴名称，格式示例: x,y,z,a,c");
+        return;
+    }
+
+    OM5A_Axis_Property axisProps[5];
+    for (int i = 0; i < 5; ++i) {
+        QString label = axisLabels[i].trimmed();
+        if (label.isEmpty()) {
+            QMessageBox::warning(this, "错误", "轴名称不能为空");
+            return;
+        }
+
+        if (!parseAxisLabel(label, axisProps[i])) {
+            QMessageBox::warning(this, "错误", "轴名称格式不正确，请检查输入");
+            return;
+        }
+    }
+
+    OM5A_Rotation_Property rotationProps;
+    bool ok = true;
+    double cx = rotationCenterCX->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 CX");
+        return;
+    }
+    double cy = rotationCenterCY->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 CY");
+        return;
+    }
+    double cz = rotationCenterCZ->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 CZ");
+        return;
+    }
+    double dx = rotationCenterDX->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 DX");
+        return;
+    }
+    double dy = rotationCenterDY->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 DY");
+        return;
+    }
+    double dz = rotationCenterDZ->text().toDouble(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "错误", "请输入有效的 DZ");
+        return;
+    }
+
+    rotationProps.Cx = cx;
+    rotationProps.Cy = cy;
+    rotationProps.Cz = cz;
+    rotationProps.Dx = dx;
+    rotationProps.Dy = dy;
+    rotationProps.Dz = dz;
+
+    OM5A_Mill_Type millType = (machineTypeCombo->currentIndex() == 1)
+            ? OM5A_Mill_Type_XYZAC
+            : OM5A_Mill_Type_XYZBC;
+
+    double initialPos[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+
+    if (mill_p) {
+        delete mill_p;
+        mill_p = nullptr;
+    }
+    mill_p = new OM5A(millType, axisProps, rotationProps, initialPos);
+
+    QMessageBox::information(this, "保存成功", "机床参数已保存，坐标映射 Tab 已解锁");
+
+    tabWidget->setTabEnabled(1, true);
+    tabWidget->setCurrentIndex(1);
+}
+
 void MainWindow::onCalculateClicked()
 {
     try {
@@ -69,15 +162,68 @@ void MainWindow::onCalculateClicked()
         this->modelPoints = parsePointsFromText(modelPointsText->toPlainText());
         this->actualPoints = parsePointsFromText(actualPointsText->toPlainText());
 
-        if(modelPoints.size() != actualPoints.size() || modelPoints.size() < 3) {
-            QMessageBox::warning(this, "错误",
-                                 QString("坐标点数量不匹配或不足\n模型点: %1, 实际点: %2\n至少需要3对点")
-                                     .arg(modelPoints.size()).arg(actualPoints.size()));
-            return;
+        const bool useICP = (algorithmCombo->currentIndex() == 1);
+
+        if (useICP) {
+            if (modelPoints.empty() || actualPoints.empty()) {
+                QMessageBox::warning(this, "错误", "请先输入模型坐标点和实际坐标点");
+                return;
+            }
+            if (modelPoints.size() < 3 || actualPoints.size() < 3) {
+                QMessageBox::warning(this, "错误",
+                                     QString("ICP需要至少3个模型点和3个实际点\n模型点: %1, 实际点: %2")
+                                         .arg(modelPoints.size()).arg(actualPoints.size()));
+                return;
+            }
+        } else {
+            if (modelPoints.empty() || actualPoints.empty()) {
+                QMessageBox::warning(this, "错误", "请先输入模型坐标点和实际坐标点");
+                return;
+            }
+            if (modelPoints.size() != actualPoints.size() || modelPoints.size() < 3) {
+                QMessageBox::warning(this, "错误",
+                                     QString("坐标点数量不匹配或不足\n模型点: %1, 实际点: %2\n至少需要3对点")
+                                         .arg(modelPoints.size()).arg(actualPoints.size()));
+                return;
+            }
         }
 
         // 计算转换矩阵
-        transformationMatrix = LeastSquaresSolver::computeTransformation(modelPoints, actualPoints);
+        double avg_error = 0.0;
+        if (algorithmCombo->currentIndex() == 1) {
+            // ICP 配准
+            Eigen::MatrixXd modelMat(modelPoints.size(), 3);
+            Eigen::MatrixXd actualMat(actualPoints.size(), 3);
+            for (int i = 0; i < (int)modelPoints.size(); ++i) {
+                modelMat(i, 0) = modelPoints[i].x;
+                modelMat(i, 1) = modelPoints[i].y;
+                modelMat(i, 2) = modelPoints[i].z;
+            }
+            for (int i = 0; i < (int)actualPoints.size(); ++i) {
+                actualMat(i, 0) = actualPoints[i].x;
+                actualMat(i, 1) = actualPoints[i].y;
+                actualMat(i, 2) = actualPoints[i].z;
+            }
+
+            ICP_OUT icp_result = icp(modelMat, actualMat, 100, 0.000001);
+
+            // 从 icp 结果填充齐次矩阵格式
+            transformationMatrix = LeastSquaresSolver::TransformationMatrix(4, std::vector<double>(4, 0.0));
+            for (int i = 0; i < 4; ++i) {
+                for (int j = 0; j < 4; ++j) {
+                    transformationMatrix[i][j] = icp_result.trans(i, j);
+                }
+            }
+
+            if (!icp_result.distances.empty()) {
+                avg_error = std::accumulate(icp_result.distances.begin(), icp_result.distances.end(), 0.0) / icp_result.distances.size();
+            }
+
+        } else {
+            // 最小二乘 Ax=B
+            transformationMatrix = LeastSquaresSolver::computeTransformation(modelPoints, actualPoints);
+            avg_error = LeastSquaresSolver::computeError(modelPoints, actualPoints, transformationMatrix);
+        }
 
         // 显示转换矩阵
         for(int i = 0; i < 4; i++) {
@@ -85,9 +231,6 @@ void MainWindow::onCalculateClicked()
                 matrixTable->item(i, j)->setText(QString::number(transformationMatrix[i][j], 'f', 6));
             }
         }
-
-        // 计算并显示误差
-        double avg_error = LeastSquaresSolver::computeError(modelPoints, actualPoints, transformationMatrix);
 
         // 详细说明误差含义
         QString errorInfo = QString(
@@ -102,14 +245,10 @@ void MainWindow::onCalculateClicked()
         QMessageBox::information(this, "计算成功", errorInfo);
 
 
-        // 计算成功后激活代码生成板块
-        setCodeGenerationEnabled(true);
-
+        // 计算成功后解锁代码生成tab
+        tabWidget->setTabEnabled(2, true);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "计算错误", e.what());
-
-        // 计算失败就禁用代码生成
-        setCodeGenerationEnabled(false);
     }
 }
 
@@ -170,13 +309,13 @@ void MainWindow::onProcessPointsClearClicked()
 
 void MainWindow::onGenerateCodeClicked()
 {
-    if (fileNameInput->text().isEmpty()) {
-        QMessageBox::warning(this, "错误", "请选择输出文件路径");
+    if (!mill_p) {
+        QMessageBox::warning(this, "错误", "请先保存机床参数");
         return;
     }
 
-    if (processPoints.empty()) {
-        QMessageBox::warning(this, "错误", "没有加工点数据");
+    if (fileNameInput->text().isEmpty()) {
+        QMessageBox::warning(this, "错误", "请选择输出文件路径");
         return;
     }
 
@@ -190,7 +329,7 @@ void MainWindow::onGenerateCodeClicked()
         }
 
         // 生成G代码
-        QString gcode = generateGCode(processPoints, axisDefinition->text());
+        QString gcode = generateGCode(processPoints);
 
         // 保存文件
         QFile file(fileNameInput->text());
@@ -327,28 +466,6 @@ QString MainWindow::cleanCoordinateString(const QString& input)
     }
 
     return result;
-}
-
-
-// 控制代码生成板块激活状态的函数
-void MainWindow::setCodeGenerationEnabled(bool enabled)
-{
-    // 禁用/启用代码生成Tab中的所有控件
-    processPointsText->setEnabled(enabled);
-    processImportBtn->setEnabled(enabled);
-    processClearBtn->setEnabled(enabled);
-    axisDefinition->setEnabled(enabled);
-    fileNameInput->setEnabled(enabled);
-    generateBtn->setEnabled(enabled);
-
-    // 设置视觉提示
-    if (enabled) {
-        tabWidget->setTabText(1, "代码生成");
-        processPointsText->setPlaceholderText("输入加工点坐标，每行一个点，格式: x,y,z,i，j,k,duration,processMethodSelection,comment");
-    } else {
-        processPointsText->setPlaceholderText("请先在坐标映射Tab中计算转换矩阵");
-        processPointsText->clear();
-    }
 }
 
 
@@ -530,14 +647,26 @@ bool MainWindow::importProcessPointsFromCSV(const QString& fileName)
     return true;
 }
 
-QString MainWindow::generateGCode(const std::vector<ProcessPoint>& points, const QString& axisDef)
+QString MainWindow::generateGCode(
+    const std::vector<ProcessPoint>& points)
 {
+    if (!mill_p) {
+        return "";
+    }
+
+    const OM5A_Axis_Property* axisProps = mill_p->axes;
+    QString axisDef;
+    for (int i = 0; i < 5; ++i) {
+        axisDef += QString::fromStdString(axisProps[i].axisLabel);
+        if (i < 4) axisDef += ",";
+    }
+
     QStringList gcodeLines;
 
     // 添加文件头
     gcodeLines.append("; 由Realignr生成");
-    gcodeLines.append(QString("; 加工点数量: %1").arg(points.size()));
-    gcodeLines.append(QString("; 五轴定义: %1").arg(axisDef));
+    gcodeLines.append(QString("; 加工点数量: <%1>").arg(points.size()));
+    gcodeLines.append(QString("; 五轴定义: <%1>").arg(axisDef));
     gcodeLines.append("; 开始加工");
     gcodeLines.append("G90 G54 ; 绝对坐标, 工作坐标系");
     gcodeLines.append("G00 Z50.000 ; 移动到安全高度");
@@ -552,24 +681,21 @@ QString MainWindow::generateGCode(const std::vector<ProcessPoint>& points, const
                                                                     Point3D(point.x, point.y, point.z));
 
         // 转换方向向量
-        QString rotationCode = convertDirectionToRotation(point.i, point.j, point.k, axisDef);
+        QString rotationCode = convertDirectionToRotation(point.i, point.j, point.k);
+
+        /////////////////这里严重缺根据转台旋转角度改变xyz的代码，后续需要完善/////////////////
+        // 需要根据旋转中心位置和旋转角度调整XYZ坐标，确保加工点在旋转后仍然正确
+        // 目前的实现只是简单地旋转方向向量，没有考虑旋转对坐标位置的影响，这可能导致加工点位置不正确
+        // 需要根据旋转轴和旋转角度计算新的坐标位置，确保加工点在旋转后仍然正确
+        
+        // 使用rotationProps中的旋转中心信息和旋转角度来调整坐标位置
 
         QString line;
-
-        if (!rotationCode.isEmpty()) {
-            // 五轴加工指令
-            line = QString("G01 X%1 Y%2 Z%3 %4")
-                       .arg(transformedPos.x, 0, 'f', 3)
-                       .arg(transformedPos.y, 0, 'f', 3)
-                       .arg(transformedPos.z, 0, 'f', 3)
-                       .arg(rotationCode);
-        } else {
-            // 三轴加工指令
-            line = QString("G01 X%1 Y%2 Z%3")
-                       .arg(transformedPos.x, 0, 'f', 3)
-                       .arg(transformedPos.y, 0, 'f', 3)
-                       .arg(transformedPos.z, 0, 'f', 3);
-        }
+        line = QString("G01 X%1 Y%2 Z%3 %4")
+                    .arg(transformedPos.x, 0, 'f', 3)
+                    .arg(transformedPos.y, 0, 'f', 3)
+                    .arg(transformedPos.z, 0, 'f', 3)
+                    .arg(rotationCode);
 
         // 加工时间（使用G04）
         if (point.duration > 0 && point.processMethodSelection == 0) {
@@ -577,7 +703,7 @@ QString MainWindow::generateGCode(const std::vector<ProcessPoint>& points, const
         }
 
         // 添加注释
-        line += QString(" ; (point%1) %2").arg(i + 1).arg(point.comment);
+        line += QString(" ; (%1) %2").arg(i + 1).arg(point.comment);
 
         gcodeLines.append(line);
     }
@@ -591,8 +717,14 @@ QString MainWindow::generateGCode(const std::vector<ProcessPoint>& points, const
 }
 
 // 转换方向向量（只旋转，不平移）
-QString MainWindow::convertDirectionToRotation(double i, double j, double k, const QString& axisDef)
+QString MainWindow::convertDirectionToRotation(
+    double i, double j, double k)
 {
+    if (!mill_p) {
+        return "";
+    }
+
+    const OM5A_Axis_Property* axisProps = mill_p->axes;
     QString rotationCode;
 
     // 从转换矩阵中提取旋转部分（3x3子矩阵）
@@ -621,42 +753,125 @@ QString MainWindow::convertDirectionToRotation(double i, double j, double k, con
         transformed_k /= length;
     }
 
-    // 解析轴定义
-    QStringList axes = axisDef.toLower().split(',', Qt::SkipEmptyParts);
+    // 解析旋转轴定义
+    QStringList axes = QStringList()
+        << QString::fromStdString(axisProps[3].axisLabel)
+        << QString::fromStdString(axisProps[4].axisLabel);
 
-    if (axes.contains("a") && axes.contains("b")) {
-        // AB五轴: A绕X轴, B绕Y轴
-        double a_angle = atan2(transformed_j, transformed_k) * 180.0 / M_PI;
-        double b_angle = atan2(transformed_i, transformed_k) * 180.0 / M_PI;
-        rotationCode = QString("A%1 B%2").arg(a_angle, 0, 'f', 3).arg(b_angle, 0, 'f', 3);
+    // 判断axes的两个旋转轴是哪两个，并计算对应的旋转角度
+    double angle1 = 0.0;
+    double angle2 = 0.0;
+    QString label1 = axes[0].toLower();
+    QString label2 = axes[1].toLower();
+
+    // 轴1
+    char ax1;
+    for (ax1 = 'a'; ax1 <= 'c'; ax1++) {
+        if (label1.contains(QString(ax1))) {
+            break;
+        }
     }
-    else if (axes.contains("a") && axes.contains("c")) {
-        // AC五轴: A绕X轴, C绕Z轴
-        double a_angle = atan2(transformed_j, transformed_k) * 180.0 / M_PI;
-        double c_angle = atan2(transformed_i, transformed_j) * 180.0 / M_PI;
-        rotationCode = QString("A%1 C%2").arg(a_angle, 0, 'f', 3).arg(c_angle, 0, 'f', 3);
+    switch (ax1)
+    {
+    case 'a':
+        angle1 = atan2(transformed_j, transformed_k) * 180.0 / M_PI;
+        break;
+    case 'b':
+        angle1 = atan2(transformed_i, transformed_k) * 180.0 / M_PI;
+        break;
+    case 'c':
+        angle1 = atan2(transformed_i, transformed_j) * 180.0 / M_PI;
+        break;
+    default:
+        qWarning() << "不支持的旋转轴标签:" << label1;
+        return "#label1 Error#";
     }
-    else if (axes.contains("b") && axes.contains("c")) {
-        // BC五轴: B绕Y轴, C绕Z轴
-        double b_angle = atan2(transformed_i, transformed_k) * 180.0 / M_PI;
-        double c_angle = atan2(transformed_i, transformed_j) * 180.0 / M_PI;
-        rotationCode = QString("B%1 C%2").arg(b_angle, 0, 'f', 3).arg(c_angle, 0, 'f', 3);
+
+    // 轴2
+    char ax2;
+    for (ax2 = 'a'; ax2 <= 'c'; ax2++) {
+        if (label2.contains(QString(ax2))) {
+            break;
+        }
     }
-    else if (axes.contains("a") && !axes.contains("b") && !axes.contains("c")) {
-        // 单A轴
-        double a_angle = atan2(transformed_j, transformed_k) * 180.0 / M_PI;
-        rotationCode = QString("A%1").arg(a_angle, 0, 'f', 3);
+    switch (ax2)
+    {
+    case 'a':
+        angle2 = atan2(transformed_j, transformed_k) * 180.0 / M_PI;
+        break;
+    case 'b':
+        angle2 = atan2(transformed_i, transformed_k) * 180.0 / M_PI;
+        break;
+    case 'c':
+        angle2 = atan2(transformed_i, transformed_j) * 180.0 / M_PI;
+        break;
+    default:
+        qWarning() << "不支持的旋转轴标签:" << label2;
+        return "#label2 Error#";
     }
-    else if (axes.contains("b") && !axes.contains("a") && !axes.contains("c")) {
-        // 单B轴
-        double b_angle = atan2(transformed_i, transformed_k) * 180.0 / M_PI;
-        rotationCode = QString("B%1").arg(b_angle, 0, 'f', 3);
+
+    if (axisProps[3].isReversed) {
+        angle1 = -angle1;
     }
-    else if (axes.contains("c") && !axes.contains("a") && !axes.contains("b")) {
-        // 单C轴
-        double c_angle = atan2(transformed_i, transformed_j) * 180.0 / M_PI;
-        rotationCode = QString("C%1").arg(c_angle, 0, 'f', 3);
+    if (axisProps[4].isReversed) {
+        angle2 = -angle2;
     }
+
+    rotationCode = QString("%1%2 %3%4")
+        .arg(axes[0]).arg(angle1, 0, 'f', 3)
+        .arg(axes[1]).arg(angle2, 0, 'f', 3);
 
     return rotationCode;
+}
+
+bool MainWindow::parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop)
+{
+    QString axis = raw.trimmed();
+    if (axis.isEmpty()) {
+        return false;
+    }
+
+    bool reversed = false;
+    // 支持负号或加号出现在开头或结尾
+    bool stripped = true;
+    while (stripped && !axis.isEmpty()) {
+        stripped = false;
+        if (axis.startsWith('+')) {
+            axis = axis.mid(1).trimmed();
+            stripped = true;
+        } else if (axis.startsWith('-')) {
+            axis = axis.mid(1).trimmed();
+            reversed = !reversed;
+            stripped = true;
+        }
+        if (axis.endsWith('+')) {
+            axis.chop(1);
+            axis = axis.trimmed();
+            stripped = true;
+        } else if (axis.endsWith('-')) {
+            axis.chop(1);
+            axis = axis.trimmed();
+            reversed = !reversed;
+            stripped = true;
+        }
+    }
+
+    if (axis.isEmpty()) {
+        return false;
+    }
+
+    prop.axisLabel = axis.toStdString();
+    prop.isReversed = reversed;
+    return true;
+}
+
+
+bool MainWindow::machine2WorkpieceTransformation(
+    const Point3D& machinePoint, const Point3D& direction, 
+    const OM5A_Rotation_Property& rotationProps, 
+    Point3D& workpiecePoint, Point3D& workpieceDirection) 
+{
+    
+
+    return true;
 }

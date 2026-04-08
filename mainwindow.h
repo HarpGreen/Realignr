@@ -2,6 +2,8 @@
 #define MAINWINDOW_H
 
 #include "least_squares.h"
+#include "icp.h"
+#include "OM5A.h" // 包含机械轴属性定义,应对机械结构装反的情况
 
 #include <QMainWindow>
 #include <QTabWidget>
@@ -43,6 +45,9 @@ public:
     ~MainWindow();
 
 private slots:
+    // 机床参数Tab槽函数
+    void onSaveMachineParametersClicked();  //保存机床参数并解锁后续Tab
+
     // 坐标映射Tab槽函数
     void onModelImportClicked();            //理论参考点坐标导入
     void onModelClearClicked();
@@ -57,10 +62,25 @@ private slots:
     void onGenerateCodeClicked();           //开始生成G代码键
 
 private:
+    // 机床
+    OM5A *mill_p;
+
+private:
+    void setupMachineParametersTab();       //绘制 机床参数 Tab
     void setupCoordinateMappingTab();       //绘制 坐标映射 Tab
-    void setupTransformationMatrixTable();  //  绘制 转换矩阵显示框
+    void setupTransformationMatrixTable();  //绘制 转换矩阵显示框
     void setupCodeGenerationTab();          //绘制 代码生成 Tab
 
+    ///////////////////////////// 机床参数Tab组件
+    QComboBox *machineTypeCombo;
+    QLineEdit *machineAxisLabels;
+    QLineEdit *rotationCenterCX;
+    QLineEdit *rotationCenterCY;
+    QLineEdit *rotationCenterCZ;
+    QLineEdit *rotationCenterDX;
+    QLineEdit *rotationCenterDY;
+    QLineEdit *rotationCenterDZ;
+    QPushButton *saveMachineParamsBtn;
 
     ///////////////////////////// 坐标映射Tab组件
     QTabWidget *tabWidget;
@@ -88,10 +108,11 @@ private:
     QTextEdit *processPointsText;
     QPushButton *processImportBtn;
     QPushButton *processClearBtn;
-    QLineEdit *axisDefinition;
     QLineEdit *fileNameInput;
     QPushButton *generateBtn;
 
+    // 机床轴标签解析
+    bool parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop);
 
     // 数据
     std::vector<Point3D> modelPoints;
@@ -105,8 +126,6 @@ private:
     std::vector<Point3D> parsePointsFromText(const QString& text);      //多行解析点
     std::vector<ProcessPoint> parseProcessPoints(const QString& text);  //多行解析加工点
     QString cleanCoordinateString(const QString& input);
-    // 控制代码生成板块的激活状态
-    void setCodeGenerationEnabled(bool enabled);
 
     // 导入功能辅助函数
     bool importPointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<Point3D>& points);
@@ -116,8 +135,11 @@ private:
     virtual bool visualizeProcessPoints() = delete;
 
     // Gcode生成
-    QString generateGCode(const std::vector<ProcessPoint>& points, const QString& axisDef);
-    QString convertDirectionToRotation(double i, double j, double k, const QString& axisDef);
+    QString generateGCode(const std::vector<ProcessPoint>& points);
+    QString convertDirectionToRotation(double i, double j, double k);
+
+    // 五轴变换
+    bool machine2WorkpieceTransformation(const Point3D& machinePoint, const Point3D& direction, const OM5A_Rotation_Property& rotationProps, Point3D& workpiecePoint, Point3D& workpieceDirection);
 };
 
 #endif // MAINWINDOW_H
