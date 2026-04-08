@@ -70,6 +70,8 @@ public:
 /*机床各轴所处位置*/
     double pos[5]; // 5轴位置，单位mm或者度，线性轴是mm，旋转轴是度
 
+    void setPos(double *newPos); // 更新轴位置，输入是一个长度为5的数组，单位同上
+
 public:
 /*仿射变换*/
 
@@ -82,10 +84,11 @@ public:
     // 根据工件实际放置位置计算的，不是机床属性，应由用户用各种配准方法来确定C2WP
 
 
-    int setupT2C(); // 根据用户输入的机床结构信息，计算出T2C中的变换矩阵
+    int updateT2C(); // 根据用户输入的机床结构信息，计算出T2C中的变换矩阵
     std::vector<Eigen::Affine3d> getT2C() { return T2C; } // 获取T2C矩阵组
     std::vector<Eigen::Affine3d> getC2T(); // 获取C2T矩阵组，是T2C的逆矩阵并且顺序相反
 
+    Eigen::Vector3d currentPosToC(); // 将当前 pos[0..2] 位置按当前 pos[3..4] 变换到 C 轴盘坐标系
 
 /*构*/
     OM5A(OM5A_Mill_Type type, 

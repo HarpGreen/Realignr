@@ -3,18 +3,29 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QDesktopServices>
+#include <QDateTime>
+#include <QProcess>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFileInfo>
+#include <QDir>
+#include <QCoreApplication>
 #include <sstream>
 #include <iomanip>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , mill_p(nullptr)
+    , machineParamsSaved(false)
 {
     tabWidget = new QTabWidget(this);
 
     setupMachineParametersTab();
+    onMachineTypeChanged();  // 初始化默认轴名称
     setupCoordinateMappingTab();
     setupCodeGenerationTab();
+    setupVisualizationTab();
 
     setCentralWidget(tabWidget);
     char title[128];
@@ -26,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 初始化时禁用后续Tab
     tabWidget->setTabEnabled(1, false);
     tabWidget->setTabEnabled(2, false);
+    tabWidget->setTabEnabled(3, false);
 }
 
 MainWindow::~MainWindow()
@@ -34,6 +46,13 @@ MainWindow::~MainWindow()
         delete mill_p;
         mill_p = nullptr;
     }
+}
+
+// 添加带时间戳的信息消息到输出框
+void MainWindow::appendInfoMessage(const QString& message)
+{
+    QString timestamp = QDateTime::currentDateTime().toString("[yyyy-MM-dd hh:mm:ss] ");
+    infoOutput->append(timestamp + message);
 }
 
 // 坐标映射Tab槽函数
@@ -57,8 +76,8 @@ void MainWindow::onActualImportClicked()
 {
     QString fileName = QFileDialog::getOpenFileName(this, "导入实际坐标CSV", "", "CSV文件 (*.csv)");
     if(!fileName.isEmpty()) {
-        if(importPointsFromCSV(fileName, actualPointsText, actualPoints)) {
-            QMessageBox::information(this, "成功", QString("成功导入 %1 个实际坐标点").arg(actualPoints.size()));
+        if(importMachinePointsFromCSV(fileName, actualPointsText, actualMachinePoints)) {
+            QMessageBox::information(this, "成功", QString("成功导入 %1 个实际坐标点").arg(actualMachinePoints.size()));
         }
     }
 }
@@ -67,100 +86,154 @@ void MainWindow::onActualClearClicked()
 {
     actualPointsText->clear();
     actualPoints.clear();
+    actualMachinePoints.clear();
+}
+
+void MainWindow::onMachineTypeChanged()
+{
+    if (machineTypeCombo->currentIndex() == 0) {
+        // XYZAC
+        machineAxisLabels->setText("x,y,z,a,c");
+    } else {
+        // XYZBC
+        machineAxisLabels->setText("x,y,z,b,c");
+    }
 }
 
 void MainWindow::onSaveMachineParametersClicked()
 {
-    if (machineTypeCombo->currentIndex() == 0) {
-        QMessageBox::warning(this, "错误", "请选择机床形式");
-        return;
-    }
-
-    QString axisText = machineAxisLabels->text().trimmed();
-    QStringList axisLabels = axisText.split(',', Qt::SkipEmptyParts);
-    if (axisLabels.size() != 5) {
-        QMessageBox::warning(this, "错误", "请输入5个轴名称，格式示例: x,y,z,a,c");
-        return;
-    }
-
-    OM5A_Axis_Property axisProps[5];
-    for (int i = 0; i < 5; ++i) {
-        QString label = axisLabels[i].trimmed();
-        if (label.isEmpty()) {
-            QMessageBox::warning(this, "错误", "轴名称不能为空");
+    if (!machineParamsSaved) {
+        // 保存模式
+        QString axisText = machineAxisLabels->text().trimmed();
+        QStringList axisLabels = axisText.split(',', Qt::SkipEmptyParts);
+        if (axisLabels.size() != 5) {
+            QMessageBox::warning(this, "错误", "请输入5个轴名称，格式示例: x,y,z,a,c");
             return;
         }
 
-        if (!parseAxisLabel(label, axisProps[i])) {
-            QMessageBox::warning(this, "错误", "轴名称格式不正确，请检查输入");
+        OM5A_Axis_Property axisProps[5];
+        for (int i = 0; i < 5; ++i) {
+            QString label = axisLabels[i].trimmed();
+            if (label.isEmpty()) {
+                QMessageBox::warning(this, "错误", "轴名称不能为空");
+                return;
+            }
+
+            if (!parseAxisLabel(label, axisProps[i])) {
+                QMessageBox::warning(this, "错误", "轴名称格式不正确，请检查输入");
+                return;
+            }
+        }
+
+        OM5A_Rotation_Property rotationProps;
+        bool ok = true;
+        double cx = rotationCenterCX->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 CX");
             return;
         }
-    }
+        double cy = rotationCenterCY->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 CY");
+            return;
+        }
+        double cz = rotationCenterCZ->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 CZ");
+            return;
+        }
+        double dx = rotationCenterDX->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 DX");
+            return;
+        }
+        double dy = rotationCenterDY->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 DY");
+            return;
+        }
+        double dz = rotationCenterDZ->text().toDouble(&ok);
+        if (!ok) {
+            QMessageBox::warning(this, "错误", "请输入有效的 DZ");
+            return;
+        }
 
-    OM5A_Rotation_Property rotationProps;
-    bool ok = true;
-    double cx = rotationCenterCX->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 CX");
-        return;
-    }
-    double cy = rotationCenterCY->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 CY");
-        return;
-    }
-    double cz = rotationCenterCZ->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 CZ");
-        return;
-    }
-    double dx = rotationCenterDX->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 DX");
-        return;
-    }
-    double dy = rotationCenterDY->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 DY");
-        return;
-    }
-    double dz = rotationCenterDZ->text().toDouble(&ok);
-    if (!ok) {
-        QMessageBox::warning(this, "错误", "请输入有效的 DZ");
-        return;
-    }
+        rotationProps.Cx = cx;
+        rotationProps.Cy = cy;
+        rotationProps.Cz = cz;
+        rotationProps.Dx = dx;
+        rotationProps.Dy = dy;
+        rotationProps.Dz = dz;
 
-    rotationProps.Cx = cx;
-    rotationProps.Cy = cy;
-    rotationProps.Cz = cz;
-    rotationProps.Dx = dx;
-    rotationProps.Dy = dy;
-    rotationProps.Dz = dz;
+        OM5A_Mill_Type millType = (machineTypeCombo->currentIndex() == 0)
+                ? OM5A_Mill_Type_XYZAC
+                : OM5A_Mill_Type_XYZBC;
 
-    OM5A_Mill_Type millType = (machineTypeCombo->currentIndex() == 1)
-            ? OM5A_Mill_Type_XYZAC
-            : OM5A_Mill_Type_XYZBC;
+        double initialPos[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-    double initialPos[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+        if (mill_p) {
+            delete mill_p;
+            mill_p = nullptr;
+        }
+        mill_p = new OM5A(millType, axisProps, rotationProps, initialPos);
 
-    if (mill_p) {
-        delete mill_p;
-        mill_p = nullptr;
+        QMessageBox::information(this, "保存成功", "机床参数已保存");
+
+        tabWidget->setTabEnabled(1, true);
+
+        // 切换到修改模式
+        machineParamsSaved = true;
+        saveMachineParamsBtn->setText("修改参数");
+        machineTypeCombo->setEnabled(false);
+        machineAxisLabels->setEnabled(false);
+        rotationCenterCX->setEnabled(false);
+        rotationCenterCY->setEnabled(false);
+        rotationCenterCZ->setEnabled(false);
+        rotationCenterDX->setEnabled(false);
+        rotationCenterDY->setEnabled(false);
+        rotationCenterDZ->setEnabled(false);
+    } else {
+        // 修改模式 - 切换回编辑状态
+        machineParamsSaved = false;
+        saveMachineParamsBtn->setText("保存参数");
+        machineTypeCombo->setEnabled(true);
+        machineAxisLabels->setEnabled(true);
+        rotationCenterCX->setEnabled(true);
+        rotationCenterCY->setEnabled(true);
+        rotationCenterCZ->setEnabled(true);
+        rotationCenterDX->setEnabled(true);
+        rotationCenterDY->setEnabled(true);
+        rotationCenterDZ->setEnabled(true);
     }
-    mill_p = new OM5A(millType, axisProps, rotationProps, initialPos);
-
-    QMessageBox::information(this, "保存成功", "机床参数已保存，坐标映射 Tab 已解锁");
-
-    tabWidget->setTabEnabled(1, true);
-    tabWidget->setCurrentIndex(1);
 }
 
 void MainWindow::onCalculateClicked()
 {
+    if (!machineParamsSaved) {
+        QMessageBox::warning(this, "错误", "请先保存机床参数");
+        return;
+    }
+
     try {
         // 解析坐标点
         this->modelPoints = parsePointsFromText(modelPointsText->toPlainText());
-        this->actualPoints = parsePointsFromText(actualPointsText->toPlainText());
+        this->actualMachinePoints = parseMachinePointsFromText(actualPointsText->toPlainText());
+        this->actualPoints.clear();
+
+        if (mill_p) {
+            for (const auto& machinePoint : actualMachinePoints) {
+                double newPos[5] = {
+                    machinePoint.x,
+                    machinePoint.y,
+                    machinePoint.z,
+                    machinePoint.a,
+                    machinePoint.c
+                };
+                mill_p->setPos(newPos);
+                Eigen::Vector3d cPoint = mill_p->currentPosToC();
+                actualPoints.emplace_back(cPoint.x(), cPoint.y(), cPoint.z());
+            }
+        }
 
         const bool useICP = (algorithmCombo->currentIndex() == 1);
 
@@ -242,11 +315,12 @@ void MainWindow::onCalculateClicked()
                                 "• 此误差反映了坐标映射的拟合精度，并非加工精度"
                                 ).arg(avg_error, 0, 'f', 4);
 
-        QMessageBox::information(this, "计算成功", errorInfo);
+        appendInfoMessage(errorInfo);
 
 
-        // 计算成功后解锁代码生成tab
+        // 计算成功后解锁代码生成tab和可视化验证tab
         tabWidget->setTabEnabled(2, true);
+        tabWidget->setTabEnabled(3, true);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "计算错误", e.what());
     }
@@ -258,17 +332,30 @@ void MainWindow::onVerifyClicked()
     QString cleaned = cleanCoordinateString(input);
     QStringList coords = cleaned.split(',', Qt::SkipEmptyParts);
 
-    if(coords.size() != 3) {
+    if (coords.size() != 3) {
         QMessageBox::warning(this, "错误", "请输入格式为 x,y,z 的坐标");
+        return;
+    }
+
+    if (!LeastSquaresSolver::isValidMatrix(transformationMatrix)) {
+        QMessageBox::warning(this, "错误", "请先完成坐标映射计算并生成有效的转换矩阵");
+        appendInfoMessage("点验证失败：转换矩阵无效或尚未计算。");
         return;
     }
 
     try {
         // 解析输入点
+        bool okX = false, okY = false, okZ = false;
         Point3D input_point;
-        input_point.x = coords[0].toDouble();
-        input_point.y = coords[1].toDouble();
-        input_point.z = coords[2].toDouble();
+        input_point.x = coords[0].toDouble(&okX);
+        input_point.y = coords[1].toDouble(&okY);
+        input_point.z = coords[2].toDouble(&okZ);
+
+        if (!okX || !okY || !okZ) {
+            QMessageBox::warning(this, "错误", "输入坐标必须是有效数字，格式示例: x,y,z");
+            appendInfoMessage("点验证失败：输入坐标含非法数字。");
+            return;
+        }
 
         // 转换坐标
         Point3D transformed_point = LeastSquaresSolver::transformPoint(transformationMatrix, input_point);
@@ -283,10 +370,12 @@ void MainWindow::onVerifyClicked()
                              .arg(transformed_point.y, 0, 'f', 3)
                              .arg(transformed_point.z, 0, 'f', 3);
 
-        verifyResult->setText(result);
+        appendInfoMessage(result);
 
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, "验证错误", e.what());
+        QString err = QString("点验证异常: %1").arg(e.what());
+        QMessageBox::critical(this, "验证错误", err);
+        appendInfoMessage(err);
     }
 }
 
@@ -355,6 +444,146 @@ void MainWindow::onGenerateCodeClicked()
     }
 }
 
+// 可视化验证Tab槽函数实现
+void MainWindow::onVisualizeClicked()
+{
+    try {
+        // 检查是否有计算结果
+        if (modelPoints.empty() || actualPoints.empty()) {
+            QMessageBox::warning(this, "错误", "请先完成坐标映射计算");
+            return;
+        }
+
+        // 准备数据
+        QJsonObject dataObj;
+
+        // 模型坐标点
+        QJsonArray modelArray;
+        for (const auto& point : modelPoints) {
+            QJsonArray pointArray;
+            pointArray.append(point.x);
+            pointArray.append(point.y);
+            pointArray.append(point.z);
+            modelArray.append(pointArray);
+        }
+        dataObj["model_points"] = modelArray;
+
+        // 实际坐标点
+        QJsonArray actualArray;
+        for (const auto& point : actualPoints) {
+            QJsonArray pointArray;
+            pointArray.append(point.x);
+            pointArray.append(point.y);
+            pointArray.append(point.z);
+            actualArray.append(pointArray);
+        }
+        dataObj["actual_points"] = actualArray;
+
+        auto round3 = [](double value) {
+            return QString::number(value, 'f', 3).toDouble();
+        };
+
+        // 加工点变换前
+        QJsonArray processBeforeArray;
+        for (const auto& processPoint : processPoints) {
+            QJsonArray pointArray;
+            pointArray.append(round3(processPoint.x));
+            pointArray.append(round3(processPoint.y));
+            pointArray.append(round3(processPoint.z));
+            processBeforeArray.append(pointArray);
+        }
+        dataObj["process_points_before"] = processBeforeArray;
+
+        // 加工点变换后（与G代码生成输出坐标一致）
+        QJsonArray processAfterArray;
+        for (const auto& processPoint : processPoints) {
+            Point3D transformed = LeastSquaresSolver::transformPoint(transformationMatrix,
+                                                                    Point3D(processPoint.x, processPoint.y, processPoint.z));
+            QJsonArray pointArray;
+            pointArray.append(round3(transformed.x));
+            pointArray.append(round3(transformed.y));
+            pointArray.append(round3(transformed.z));
+            processAfterArray.append(pointArray);
+        }
+        dataObj["process_points_after"] = processAfterArray;
+
+        // 转换为JSON字符串
+        QJsonDocument doc(dataObj);
+        QString jsonData = doc.toJson(QJsonDocument::Compact);
+
+        // 调用Python脚本
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QStringList pythonScriptCandidates = {
+            QDir(appDir).filePath("visualize/visualize.py"),
+            QDir(appDir).absoluteFilePath("../visualize/visualize.py"),
+            QDir(appDir).absoluteFilePath("../../visualize/visualize.py"),
+            QDir(appDir).absoluteFilePath("../../../visualize/visualize.py")
+        };
+
+        QString pythonScript;
+        for (const QString &candidate : pythonScriptCandidates) {
+            if (QFileInfo(candidate).exists()) {
+                pythonScript = candidate;
+                break;
+            }
+        }
+
+        if (pythonScript.isEmpty()) {
+            QString err = QString("找不到 Python 脚本: %1").arg(pythonScriptCandidates.join(", "));
+            QMessageBox::critical(this, "可视化错误", err);
+            appendInfoMessage(err);
+            return;
+        }
+
+        QFileInfo scriptInfo(pythonScript);
+        QProcess *process = new QProcess(this);
+        process->setWorkingDirectory(scriptInfo.absolutePath());
+        process->setProcessChannelMode(QProcess::SeparateChannels);
+        process->setProperty("stderrOutput", QString());
+
+        connect(process, &QProcess::readyReadStandardError, [process]() {
+            QString current = process->property("stderrOutput").toString();
+            current += QString::fromUtf8(process->readAllStandardError());
+            process->setProperty("stderrOutput", current);
+        });
+
+        connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                [this, process](int exitCode, QProcess::ExitStatus exitStatus) {
+            QString stderrOutput = process->property("stderrOutput").toString();
+            QString stdoutOutput = QString::fromUtf8(process->readAllStandardOutput());
+            if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+                appendInfoMessage("可视化脚本执行成功。");
+            } else {
+                QString detail = stderrOutput.isEmpty() ? stdoutOutput : stderrOutput;
+                if (detail.isEmpty()) {
+                    detail = process->errorString();
+                }
+                QMessageBox::warning(this, "可视化错误",
+                                     QString("Python脚本执行失败: %1").arg(detail));
+                appendInfoMessage(QString("可视化失败: %1").arg(detail));
+            }
+            process->deleteLater();
+        });
+
+        // 启动进程，将JSON数据通过stdin传递
+        process->start("python", QStringList() << pythonScript);
+        if (process->waitForStarted(3000)) {
+            process->write(jsonData.toUtf8());
+            process->closeWriteChannel();
+        } else {
+            QString err = process->errorString();
+            QMessageBox::critical(this, "错误", QString("无法启动Python进程: %1").arg(err));
+            appendInfoMessage(QString("可视化启动失败: %1").arg(err));
+            process->deleteLater();
+        }
+
+        appendInfoMessage("启动可视化验证...");
+
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "可视化错误", QString("准备数据时发生错误: %1").arg(e.what()));
+    }
+}
+
 // 工具函数
 // 解析坐标点函数
 std::vector<Point3D> MainWindow::parsePointsFromText(const QString& text)
@@ -377,6 +606,42 @@ std::vector<Point3D> MainWindow::parsePointsFromText(const QString& text)
             if (!conversionOk) continue;
 
             point.z = coords[2].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            points.push_back(point);
+        }
+    }
+
+    return points;
+}
+
+// 解析机床5轴实际点文本
+std::vector<MachinePoint5D> MainWindow::parseMachinePointsFromText(const QString& text)
+{
+    std::vector<MachinePoint5D> points;
+    QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+
+    for (const QString& line : lines) {
+        QString cleaned = cleanCoordinateString(line);
+        QStringList coords = cleaned.split(',', Qt::SkipEmptyParts);
+
+        if (coords.size() >= 3) {
+            bool conversionOk = true;
+            MachinePoint5D point;
+
+            point.x = coords[0].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            point.y = coords[1].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            point.z = coords[2].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            // 如果输入中包含角度值，则使用它们；否则默认 0
+            point.a = (coords.size() >= 4) ? coords[3].toDouble(&conversionOk) : 0.0;
+            if (!conversionOk) continue;
+            point.c = (coords.size() >= 5) ? coords[4].toDouble(&conversionOk) : 0.0;
             if (!conversionOk) continue;
 
             points.push_back(point);
@@ -545,6 +810,86 @@ bool MainWindow::importPointsFromCSV(const QString& fileName, QTextEdit* textEdi
     points = importedPoints;
     textEdit->setPlainText(displayLines.join("\n"));
 
+    return true;
+}
+
+bool MainWindow::importMachinePointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<MachinePoint5D>& points)
+{
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "错误", "无法打开文件: " + fileName);
+        return false;
+    }
+
+    QTextStream in(&file);
+    QStringList lines;
+    std::vector<MachinePoint5D> importedPoints;
+
+    // 读取文件内容
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (!line.isEmpty()) {
+            lines.append(line);
+        }
+    }
+    file.close();
+
+    if (lines.isEmpty()) {
+        QMessageBox::warning(this, "警告", "文件为空");
+        return false;
+    }
+
+    bool hasHeader = false;
+    QStringList firstLine = lines.first().split(',');
+    if (!firstLine.isEmpty()) {
+        QString firstElement = firstLine[0].trimmed();
+        bool isNumeric;
+        firstElement.toDouble(&isNumeric);
+        hasHeader = !isNumeric;
+    }
+
+    int startLine = hasHeader ? 1 : 0;
+    int successCount = 0;
+    QStringList displayLines;
+
+    for (int i = startLine; i < lines.size(); ++i) {
+        QString line = lines[i];
+        QString cleanedLine = cleanCoordinateString(line);
+        QStringList coords = cleanedLine.split(',', Qt::SkipEmptyParts);
+
+        if (coords.size() >= 3) {
+            bool conversionOk = true;
+            MachinePoint5D point;
+
+            point.x = coords[0].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            point.y = coords[1].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            point.z = coords[2].toDouble(&conversionOk);
+            if (!conversionOk) continue;
+
+            point.a = (coords.size() >= 4) ? coords[3].toDouble(&conversionOk) : 0.0;
+            if (!conversionOk) continue;
+
+            point.c = (coords.size() >= 5) ? coords[4].toDouble(&conversionOk) : 0.0;
+            if (!conversionOk) continue;
+
+            importedPoints.push_back(point);
+            displayLines.append(QString("%1,%2,%3,%4,%5")
+                .arg(point.x).arg(point.y).arg(point.z).arg(point.a).arg(point.c));
+            successCount++;
+        }
+    }
+
+    if (successCount == 0) {
+        QMessageBox::warning(this, "警告", "文件中未找到有效的5轴坐标数据");
+        return false;
+    }
+
+    points = importedPoints;
+    textEdit->setPlainText(displayLines.join("\n"));
     return true;
 }
 

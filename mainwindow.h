@@ -24,6 +24,13 @@ constexpr int VERSION[3] = {1,0,0};
 //点定义
 using Point3D = LeastSquaresSolver::Point3D;
 
+// 5轴机床实际点类型，用于输入的机床坐标(x,y,z,a,c)
+struct MachinePoint5D {
+    double x, y, z, a, c;
+    MachinePoint5D(double x = 0, double y = 0, double z = 0, double a = 0, double c = 0)
+        : x(x), y(y), z(z), a(a), c(c) {}
+};
+
 //加工点定义，包含加工方向和其他加工信息
 struct ProcessPoint {
     double x, y, z;
@@ -47,6 +54,7 @@ public:
 private slots:
     // 机床参数Tab槽函数
     void onSaveMachineParametersClicked();  //保存机床参数并解锁后续Tab
+    void onMachineTypeChanged();            //机床形式改变时更新默认轴名称
 
     // 坐标映射Tab槽函数
     void onModelImportClicked();            //理论参考点坐标导入
@@ -61,15 +69,22 @@ private slots:
     void onProcessPointsClearClicked();
     void onGenerateCodeClicked();           //开始生成G代码键
 
+    // 可视化验证Tab槽函数
+    void onVisualizeClicked();              //可视化验证
+
 private:
     // 机床
     OM5A *mill_p;
+    bool machineParamsSaved;  // 机床参数是否已保存
+
+    void appendInfoMessage(const QString& message);  // 添加信息消息到输出框
 
 private:
     void setupMachineParametersTab();       //绘制 机床参数 Tab
     void setupCoordinateMappingTab();       //绘制 坐标映射 Tab
     void setupTransformationMatrixTable();  //绘制 转换矩阵显示框
     void setupCodeGenerationTab();          //绘制 代码生成 Tab
+    void setupVisualizationTab();           //绘制 可视化验证 Tab
 
     ///////////////////////////// 机床参数Tab组件
     QComboBox *machineTypeCombo;
@@ -101,7 +116,7 @@ private:
     QTableWidget *matrixTable;
     QLineEdit *verifyInput;
     QPushButton *verifyBtn;
-    QTextEdit *verifyResult;
+    QTextEdit *infoOutput;
 
 
     ///////////////////////////// 代码生成Tab组件
@@ -111,12 +126,16 @@ private:
     QLineEdit *fileNameInput;
     QPushButton *generateBtn;
 
+    ///////////////////////////// 可视化验证Tab组件
+    QPushButton *visualizeBtn;
+
     // 机床轴标签解析
     bool parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop);
 
     // 数据
     std::vector<Point3D> modelPoints;
-    std::vector<Point3D> actualPoints;
+    std::vector<Point3D> actualPoints;               // C转盘坐标系下的实际点
+    std::vector<MachinePoint5D> actualMachinePoints; // 用户输入的5轴机床实际坐标
     std::vector<ProcessPoint> processPoints;
 
     // 转换矩阵
@@ -124,11 +143,13 @@ private:
 
     // 工具函数
     std::vector<Point3D> parsePointsFromText(const QString& text);      //多行解析点
+    std::vector<MachinePoint5D> parseMachinePointsFromText(const QString& text); // 解析5轴机床实际点
     std::vector<ProcessPoint> parseProcessPoints(const QString& text);  //多行解析加工点
     QString cleanCoordinateString(const QString& input);
 
     // 导入功能辅助函数
     bool importPointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<Point3D>& points);
+    bool importMachinePointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<MachinePoint5D>& points);
     bool importProcessPointsFromCSV(const QString& fileName);
 
     // 可视化

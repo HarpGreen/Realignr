@@ -18,10 +18,10 @@ OM5A::OM5A(OM5A_Mill_Type type,
     }
 
     // 设置T2C变换矩阵
-    setupT2C();
+    updateT2C();
 }
 
-int OM5A::setupT2C()
+int OM5A::updateT2C()
 {
     if(millType == OM5A_Mill_Type_XYZAC)
     {
@@ -85,4 +85,26 @@ std::vector<Eigen::Affine3d> OM5A::getC2T()
     // 颠倒C2T vector的顺序
     std::reverse(C2T.begin(), C2T.end());
     return C2T;
+}
+
+void OM5A::setPos(double *newPos)
+{
+    for(int i = 0; i < 5; ++i)
+    {
+        pos[i] = newPos[i];
+    }
+    updateT2C();
+}
+
+Eigen::Vector3d OM5A::currentPosToC()
+{
+    updateT2C();
+
+    Eigen::Affine3d combined = Eigen::Affine3d::Identity();
+    for (const auto& transform : T2C) {
+        combined = transform * combined;
+    }
+
+    Eigen::Vector3d p_m(pos[0], pos[1], pos[2]);
+    return combined * p_m;
 }

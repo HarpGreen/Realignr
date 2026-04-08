@@ -17,16 +17,15 @@ void MainWindow::setupMachineParametersTab()
 
     axisLayout->addWidget(new QLabel("机床形式:"));
     machineTypeCombo = new QComboBox;
-    machineTypeCombo->addItem("请选择机床形式");
     machineTypeCombo->addItem("XYZAC");
     machineTypeCombo->addItem("XYZBC");
-    machineTypeCombo->setCurrentIndex(0);
+    machineTypeCombo->setCurrentIndex(0);  // 默认选择XYZAC
     axisLayout->addWidget(machineTypeCombo);
 
     axisLayout->addWidget(new QLabel("机床轴名称:"));
     machineAxisLabels = new QLineEdit;
-    machineAxisLabels->setText("x,y,z,a,c");
-    machineAxisLabels->setPlaceholderText("输入轴名称，如: x,y,z,a,c");
+    machineAxisLabels->setText("X,Y,Z,A,C");  // 默认轴名称
+    machineAxisLabels->setPlaceholderText("输入轴名称，如: X,Y,Z,A,C");
     axisLayout->addWidget(machineAxisLabels);
 
     // 旋转中心区域
@@ -121,7 +120,7 @@ void MainWindow::setupCoordinateMappingTab()
     QVBoxLayout *modelLayout = new QVBoxLayout(modelGroup);
 
     modelPointsText = new QTextEdit;
-    modelPointsText->setPlaceholderText("输入模型坐标点，每行一个点，格式: x,y,z\n例如:\n0,0,0\n100,0,0\n0,100,0");
+    modelPointsText->setPlaceholderText("输入模型三坐标点，每行一个点，例如:\n0,0,0\n100,0,0\n0,100,0");
     modelLayout->addWidget(modelPointsText); // 去掉高度限制
 
     QHBoxLayout *modelBtnLayout = new QHBoxLayout;
@@ -136,7 +135,7 @@ void MainWindow::setupCoordinateMappingTab()
     QVBoxLayout *actualLayout = new QVBoxLayout(actualGroup);
 
     actualPointsText = new QTextEdit;
-    actualPointsText->setPlaceholderText("输入实际坐标点，每行一个点，格式: x,y,z\n例如:\n0.1,0.2,0.05\n99.9,0.3,0.05\n0.2,100.1,0.05");
+    actualPointsText->setPlaceholderText("输入实际五轴坐标点，每行一个点，格式例如: \n0.1,0.2,0.05,0.0,0.0\n99.9,0.3,0.05,0.0,0.0\n0.2,100.1,0.05,0.0,0.0");
     actualLayout->addWidget(actualPointsText); // 去掉高度限制
 
     QHBoxLayout *actualBtnLayout = new QHBoxLayout;
@@ -177,10 +176,10 @@ void MainWindow::setupCoordinateMappingTab()
     verifyInputLayout->addWidget(verifyBtn);
     calcLayout->addLayout(verifyInputLayout);
 
-    calcLayout->addWidget(new QLabel("验证结果:"));
-    verifyResult = new QTextEdit;
-    verifyResult->setReadOnly(true);
-    calcLayout->addWidget(verifyResult); // 去掉高度限制，让它自动扩展
+    calcLayout->addWidget(new QLabel("信息输出:"));
+    infoOutput = new QTextEdit;
+    infoOutput->setReadOnly(true);
+    calcLayout->addWidget(infoOutput); // 去掉高度限制，让它自动扩展
 
     // 添加到主布局，调整比例
     mainLayout->addWidget(modelGroup, 1);    // 左侧模型区域占1份
@@ -297,4 +296,37 @@ void MainWindow::setupCodeGenerationTab()
         }
     });
     connect(saveMachineParamsBtn, &QPushButton::clicked, this, &MainWindow::onSaveMachineParametersClicked);
+    connect(machineTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onMachineTypeChanged);
+}
+
+//************ TAB： VISUALIZATION *****************
+
+void MainWindow::setupVisualizationTab()
+{
+    QWidget *visualTab = new QWidget;
+    QVBoxLayout *mainLayout = new QVBoxLayout(visualTab);
+
+    // 标题
+    QLabel *titleLabel = new QLabel("可视化验证");
+    titleLabel->setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;");
+    mainLayout->addWidget(titleLabel);
+
+    // 说明文本
+    QLabel *descLabel = new QLabel("点击下方按钮使用Python脚本进行三维可视化，显示模型坐标点、实际坐标点以及加工点变换前后的对比。");
+    descLabel->setWordWrap(true);
+    mainLayout->addWidget(descLabel);
+
+    // 按钮
+    visualizeBtn = new QPushButton("启动可视化验证");
+    visualizeBtn->setMinimumHeight(40);
+    visualizeBtn->setStyleSheet("font-size: 14px; padding: 10px;");
+    mainLayout->addWidget(visualizeBtn);
+
+    // 添加伸缩空间
+    mainLayout->addStretch();
+
+    // 连接信号
+    connect(visualizeBtn, &QPushButton::clicked, this, &MainWindow::onVisualizeClicked);
+
+    tabWidget->addTab(visualTab, "可视化验证");
 }
