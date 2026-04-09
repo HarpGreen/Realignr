@@ -93,10 +93,10 @@ void MainWindow::onMachineTypeChanged()
 {
     if (machineTypeCombo->currentIndex() == 0) {
         // XYZAC
-        machineAxisLabels->setText("x,y,z,a,c");
+        machineAxisLabels->setText("X,Y,Z,A,C");
     } else {
         // XYZBC
-        machineAxisLabels->setText("x,y,z,b,c");
+        machineAxisLabels->setText("X,Y,Z,B,C");
     }
 }
 
@@ -107,7 +107,7 @@ void MainWindow::onSaveMachineParametersClicked()
         QString axisText = machineAxisLabels->text().trimmed();
         QStringList axisLabels = axisText.split(',', Qt::SkipEmptyParts);
         if (axisLabels.size() != 5) {
-            QMessageBox::warning(this, "错误", "请输入5个轴名称，格式示例: x,y,z,a,c");
+            QMessageBox::warning(this, "错误", "请输入5个轴名称，格式示例: X,Y,Z,A,C");
             return;
         }
 
@@ -209,6 +209,8 @@ void MainWindow::onSaveMachineParametersClicked()
 
 void MainWindow::onCalculateClicked()
 {
+    const int algorithmIndex = algorithmCombo->currentIndex();
+
     if (!machineParamsSaved) {
         QMessageBox::warning(this, "错误", "请先保存机床参数");
         return;
@@ -220,6 +222,7 @@ void MainWindow::onCalculateClicked()
         this->actualMachinePoints = parseMachinePointsFromText(actualPointsText->toPlainText());
         this->actualPoints.clear();
 
+        // 把用户输入的五轴位置，转换到 C 轴盘坐标系
         if (mill_p) {
             for (const auto& machinePoint : actualMachinePoints) {
                 double newPos[5] = {
@@ -235,20 +238,10 @@ void MainWindow::onCalculateClicked()
             }
         }
 
-        const bool useICP = (algorithmCombo->currentIndex() == 1);
-
-        if (useICP) {
-            if (modelPoints.empty() || actualPoints.empty()) {
-                QMessageBox::warning(this, "错误", "请先输入模型坐标点和实际坐标点");
-                return;
-            }
-            if (modelPoints.size() < 3 || actualPoints.size() < 3) {
-                QMessageBox::warning(this, "错误",
-                                     QString("ICP需要至少3个模型点和3个实际点\n模型点: %1, 实际点: %2")
-                                         .arg(modelPoints.size()).arg(actualPoints.size()));
-                return;
-            }
-        } else {
+        // 输入检查
+        switch (algorithmIndex)
+        {
+        case 0:
             if (modelPoints.empty() || actualPoints.empty()) {
                 QMessageBox::warning(this, "错误", "请先输入模型坐标点和实际坐标点");
                 return;
@@ -259,11 +252,27 @@ void MainWindow::onCalculateClicked()
                                          .arg(modelPoints.size()).arg(actualPoints.size()));
                 return;
             }
+            break;
+        case 1:
+            if (modelPoints.empty() || actualPoints.empty()) {
+                QMessageBox::warning(this, "错误", "请先输入模型坐标点和实际坐标点");
+                return;
+            }
+            if (modelPoints.size() < 3 || actualPoints.size() < 3) {
+                QMessageBox::warning(this, "错误",
+                                     QString("ICP需要至少3个模型点和3个实际点\n模型点: %1, 实际点: %2")
+                                         .arg(modelPoints.size()).arg(actualPoints.size()));
+                return;
+            }
+            break;
+        default:
+            QMessageBox::warning(this, "错误", "请选择坐标映射算法");
+            return;
         }
 
         // 计算转换矩阵
         double avg_error = 0.0;
-        if (algorithmCombo->currentIndex() == 1) {
+        if (algorithmIndex == 1) {
             // ICP 配准
             Eigen::MatrixXd modelMat(modelPoints.size(), 3);
             Eigen::MatrixXd actualMat(actualPoints.size(), 3);
@@ -307,12 +316,10 @@ void MainWindow::onCalculateClicked()
 
         // 详细说明误差含义
         QString errorInfo = QString(
-                                "转换矩阵计算完成!\n\n"
+                                "WP2C转换矩阵计算完成!\n\n"
                                 "平均配准误差: %1 mm\n\n"
-                                "误差说明:\n"
-                                "• 该误差表示模型点经过转换后与实际点之间的平均距离\n"
-                                "• 计算方法: 对每个点计算转换后的坐标与实际坐标的欧氏距离，然后取平均值\n"
-                                "• 此误差反映了坐标映射的拟合精度，并非加工精度"
+                                "误差说明:\n 对每个点计算转换后的坐标与实际坐标的欧氏距离，然后取平均值\n"
+                                "此误差反映了坐标映射的拟合精度，并非加工精度"
                                 ).arg(avg_error, 0, 'f', 4);
 
         appendInfoMessage(errorInfo);
@@ -321,6 +328,7 @@ void MainWindow::onCalculateClicked()
         // 计算成功后解锁代码生成tab和可视化验证tab
         tabWidget->setTabEnabled(2, true);
         tabWidget->setTabEnabled(3, true);
+
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "计算错误", e.what());
     }
@@ -417,7 +425,7 @@ void MainWindow::onGenerateCodeClicked()
             return;
         }
 
-        // 生成G代码
+        // 生成G代码，同时更新处理后的加工点坐标到processPointsAfter中
         QString gcode = generateGCode(processPoints);
 
         // 保存文件
@@ -454,21 +462,44 @@ void MainWindow::onVisualizeClicked()
             return;
         }
 
+
+        // 参数:
+        // data_dict: 字典，包含不同点集的数据
+        //        格式: {
+        //            'model_points': [[x,y,z], ...],
+        //            'actual_points': [[x,y,z], ...], 
+        //            'process_points_before': [[x,y,z], ...],
+        //            'process_points_after': [[x,y,z], ...]
+        //        }
+
         // 准备数据
         QJsonObject dataObj;
 
-        // 模型坐标点
+        // model_points - 转换后的模型点（WP2C转换后的点）
         QJsonArray modelArray;
         for (const auto& point : modelPoints) {
+            // 将模型点通过转换矩阵变换到C盘坐标系
+            Point3D transformedModelPoint = LeastSquaresSolver::transformPoint(transformationMatrix, point);
             QJsonArray pointArray;
-            pointArray.append(point.x);
-            pointArray.append(point.y);
-            pointArray.append(point.z);
+            pointArray.append(transformedModelPoint.x);
+            pointArray.append(transformedModelPoint.y);
+            pointArray.append(transformedModelPoint.z);
             modelArray.append(pointArray);
         }
         dataObj["model_points"] = modelArray;
 
-        // 实际坐标点
+        // // model_points
+        // QJsonArray modelArray;
+        // for (const auto& point : modelPoints) {
+        //     QJsonArray pointArray;
+        //     pointArray.append(point.x);
+        //     pointArray.append(point.y);
+        //     pointArray.append(point.z);
+        //     modelArray.append(pointArray);
+        // }
+        // dataObj["model_points"] = modelArray;
+
+        // actual_points
         QJsonArray actualArray;
         for (const auto& point : actualPoints) {
             QJsonArray pointArray;
@@ -479,33 +510,44 @@ void MainWindow::onVisualizeClicked()
         }
         dataObj["actual_points"] = actualArray;
 
+
         auto round3 = [](double value) {
             return QString::number(value, 'f', 3).toDouble();
         };
 
-        // 加工点变换前
+        // process_points - 转换后的坐标（WP2C转换后的点）
         QJsonArray processBeforeArray;
         for (const auto& processPoint : processPoints) {
+            // 将加工点通过转换矩阵变换到C盘坐标系
+            Point3D transformedProcessPoint = LeastSquaresSolver::transformPoint(transformationMatrix,
+                                                                                Point3D(processPoint.x, processPoint.y, processPoint.z));
             QJsonArray pointArray;
-            pointArray.append(round3(processPoint.x));
-            pointArray.append(round3(processPoint.y));
-            pointArray.append(round3(processPoint.z));
+            pointArray.append(round3(transformedProcessPoint.x));
+            pointArray.append(round3(transformedProcessPoint.y));
+            pointArray.append(round3(transformedProcessPoint.z));
+            pointArray.append(round3(processPoint.i));
+            pointArray.append(round3(processPoint.j));
+            pointArray.append(round3(processPoint.k));
+            pointArray.append(round3(processPoint.duration));
+            pointArray.append(processPoint.processMethodSelection);
+            pointArray.append(processPoint.comment);
             processBeforeArray.append(pointArray);
         }
-        dataObj["process_points_before"] = processBeforeArray;
+        dataObj["process_points"] = processBeforeArray;
+        // // process_points_after
+        // QJsonArray processAfterArray;
+        // for (const auto& processPoint : processPoints) {
+        //     Point3D transformed = LeastSquaresSolver::transformPoint(transformationMatrix,
+        //                                                             Point3D(processPoint.x, processPoint.y, processPoint.z));
+        //     QJsonArray pointArray;
+        //     pointArray.append(round3(transformed.x));
+        //     pointArray.append(round3(transformed.y));
+        //     pointArray.append(round3(transformed.z));
+        //     processAfterArray.append(pointArray);
+        // }
+        // dataObj["process_points_after"] = processAfterArray;
 
-        // 加工点变换后（与G代码生成输出坐标一致）
-        QJsonArray processAfterArray;
-        for (const auto& processPoint : processPoints) {
-            Point3D transformed = LeastSquaresSolver::transformPoint(transformationMatrix,
-                                                                    Point3D(processPoint.x, processPoint.y, processPoint.z));
-            QJsonArray pointArray;
-            pointArray.append(round3(transformed.x));
-            pointArray.append(round3(transformed.y));
-            pointArray.append(round3(transformed.z));
-            processAfterArray.append(pointArray);
-        }
-        dataObj["process_points_after"] = processAfterArray;
+
 
         // 转换为JSON字符串
         QJsonDocument doc(dataObj);
@@ -1009,7 +1051,7 @@ QString MainWindow::generateGCode(
     QStringList gcodeLines;
 
     // 添加文件头
-    gcodeLines.append("; 由Realignr生成");
+    gcodeLines.append(QString("; 由Realignr(v%1.%2.%3)生成").arg(VERSION[0]).arg(VERSION[1]).arg(VERSION[2]));
     gcodeLines.append(QString("; 加工点数量: <%1>").arg(points.size()));
     gcodeLines.append(QString("; 五轴定义: <%1>").arg(axisDef));
     gcodeLines.append("; 开始加工");
@@ -1021,36 +1063,28 @@ QString MainWindow::generateGCode(
     for (size_t i = 0; i < points.size(); ++i) {
         const ProcessPoint& point = points[i];
 
-        // 转换坐标位置（使用之前的最小二乘转换）
-        Point3D transformedPos = LeastSquaresSolver::transformPoint(transformationMatrix,
-                                                                    Point3D(point.x, point.y, point.z));
+        // 坐标以外的信息暂时直接复制
+        ProcessPointJoint joint;
+        joint.duration = point.duration;
+        joint.processMethodSelection = point.processMethodSelection;
+        joint.comment = point.comment;
 
-        // 转换方向向量
-        QString rotationCode = convertDirectionToRotation(point.i, point.j, point.k);
+        int rc = mill_p->computePoseFromRayInC(Eigen::Vector3d(point.x, point.y, point.z),
+                                      Eigen::Vector3d(point.i, point.j, point.k));
 
-        /////////////////这里严重缺根据转台旋转角度改变xyz的代码，后续需要完善/////////////////
-        // 需要根据旋转中心位置和旋转角度调整XYZ坐标，确保加工点在旋转后仍然正确
-        // 目前的实现只是简单地旋转方向向量，没有考虑旋转对坐标位置的影响，这可能导致加工点位置不正确
-        // 需要根据旋转轴和旋转角度计算新的坐标位置，确保加工点在旋转后仍然正确
-        
-        // 使用rotationProps中的旋转中心信息和旋转角度来调整坐标位置
+        mill_p->getPos(joint.pos);
 
-        QString line;
-        line = QString("G01 X%1 Y%2 Z%3 %4")
-                    .arg(transformedPos.x, 0, 'f', 3)
-                    .arg(transformedPos.y, 0, 'f', 3)
-                    .arg(transformedPos.z, 0, 'f', 3)
-                    .arg(rotationCode);
-
-        // 加工时间（使用G04）
-        if (point.duration > 0 && point.processMethodSelection == 0) {
-            line += QString(" G04 P%1").arg(point.duration, 0, 'f', 1);
-        }
+        QString line = generateGCodeLine(joint);
 
         // 添加注释
         line += QString(" ; (%1) %2").arg(i + 1).arg(point.comment);
 
         gcodeLines.append(line);
+        
+        // 加工时间（使用G04）
+        if (point.duration > 0 && point.processMethodSelection == 1) {
+            gcodeLines.append(QString("G04 P%1").arg(point.duration, 0, 'f', 1));
+        }
     }
 
     // 文件尾
@@ -1061,8 +1095,61 @@ QString MainWindow::generateGCode(
     return gcodeLines.join("\n");
 }
 
-// 转换方向向量（只旋转，不平移）
-QString MainWindow::convertDirectionToRotation(
+QString MainWindow::generateGCodeLine(const ProcessPointJoint& joint)
+{
+    if (!mill_p) {
+        return "";
+    }
+
+    const OM5A_Axis_Property* axisProps = mill_p->axes;
+    
+    // 构建G01移动指令
+    QStringList moveParts;
+    moveParts << "G01";
+    
+    // 处理5个轴：X, Y, Z 和两个旋转轴
+    for (int i = 0; i < 5; ++i) {
+        double value = joint.pos[i];
+        
+        // 根据轴属性判断是否需要反向
+        if (axisProps[i].isReversed) {
+            value = -value;
+        }
+        
+        // 获取轴标签
+        QString label = QString::fromStdString(axisProps[i].axisLabel);
+        if (label.isEmpty()) {
+            continue;
+        }
+        
+        // 格式化数值：线性轴保留3位小数，旋转轴保留3位小数
+        moveParts << QString("%1%2").arg(label).arg(value, 0, 'f', 3);
+    }
+    
+    // 组合移动指令
+    QString line = moveParts.join(" ");
+    
+    // 添加注释（格式： ; (注释内容)）
+    if (!joint.comment.isEmpty()) {
+        line += QString(" ; (%1)").arg(joint.comment);
+    }
+    
+    QStringList result;
+    result << line;
+    
+    // 如果duration不为0，添加G04等待指令
+    // 注意：duration单位是秒，G04 X后面跟秒数，或者G04 P后面跟毫秒数
+    // 这里使用G04 X（秒）
+    if (joint.duration > 0) {
+        result << QString("G04 X%1")
+                  .arg(joint.duration, 0, 'f', 1)
+                  .arg(joint.duration, 0, 'f', 1);
+    }
+    
+    return result.join("\n");
+}
+/*
+QString MainWindow::generateRotationGCode(
     double i, double j, double k)
 {
     if (!mill_p) {
@@ -1168,7 +1255,7 @@ QString MainWindow::convertDirectionToRotation(
 
     return rotationCode;
 }
-
+*/
 bool MainWindow::parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop)
 {
     QString axis = raw.trimmed();
@@ -1207,16 +1294,5 @@ bool MainWindow::parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop)
 
     prop.axisLabel = axis.toStdString();
     prop.isReversed = reversed;
-    return true;
-}
-
-
-bool MainWindow::machine2WorkpieceTransformation(
-    const Point3D& machinePoint, const Point3D& direction, 
-    const OM5A_Rotation_Property& rotationProps, 
-    Point3D& workpiecePoint, Point3D& workpieceDirection) 
-{
-    
-
     return true;
 }

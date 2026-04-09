@@ -17,13 +17,12 @@ def visualize_multiple_point_sets(data_dict):
                格式: {
                    'model_points': [[x,y,z], ...],
                    'actual_points': [[x,y,z], ...], 
-                   'process_points_before': [[x,y,z], ...],
-                   'process_points_after': [[x,y,z], ...]
+                   'process_points': [[x,y,z,i,j,k,comment], ...]  # comment为字符串
                }
     """
     
     try:
-        fig = plt.figure(figsize=(12, 8))
+        fig = plt.figure(figsize=(14, 10))
         ax = fig.add_subplot(111, projection='3d')
 
         def on_scroll(event):
@@ -61,33 +60,101 @@ def visualize_multiple_point_sets(data_dict):
 
         fig.canvas.mpl_connect('scroll_event', on_scroll)
 
-        colors = ['red', 'blue', 'green', 'orange']
-        labels = ['Model points', 'Actual points', 'Process points (before)', 'Process points (after)']
-        markers = ['o', 's', '^', 'D']
-        keys = ['model_points', 'actual_points', 'process_points_before', 'process_points_after']
+        colors = ['blue', 'red', 'green']
+        labels = ['Model points (transformed)', 'Actual points (C system)', 'Process points']
+        markers = ['o', 's', '^']
+        keys = ['model_points', 'actual_points', 'process_points']
         
         all_points = []
         
         for i, key in enumerate(keys):
             if key in data_dict and data_dict[key]:
-                points = np.array(data_dict[key])
-                if points.size > 0:
-                    # 绘制点
-                    ax.scatter(points[:, 0], points[:, 1], points[:, 2], 
-                              c=colors[i], s=50, alpha=0.8, marker=markers[i], label=labels[i])
+                points_data = data_dict[key]
+                
+                if not points_data:
+                    continue
                     
-                    # 为每个点添加序号标签
-                    for idx, point in enumerate(points):
-                        offset = 0.02 * np.max(np.abs(points)) if points.size > 0 else 0.1
-                        ax.text(point[0] + offset, point[1] + offset, point[2] + offset,
-                               f'{labels[i][:2]}{idx+1}', fontsize=8, color=colors[i], alpha=0.7)
-                    
-                    all_points.extend(points)
+                # 检查数据格式
+                first_item = points_data[0]
+                
+                # 判断是否有向量数据（6个数值 + 可能的comment）
+                has_vectors = False
+                has_comments = False
+                
+                if isinstance(first_item, list):
+                    # 如果是数组格式
+                    if len(first_item) >= 6:
+                        has_vectors = True
+                    if len(first_item) >= 7 and isinstance(first_item[6], str):
+                        has_comments = True
+                elif isinstance(first_item, dict):
+                    # 如果是字典格式（预留）
+                    pass
+                
+                # 提取点和向量
+                points = []
+                vectors = []
+                comments = []
+                
+                for item in points_data:
+                    if isinstance(item, list):
+                        x, y, z = item[0], item[1], item[2]
+                        points.append([x, y, z])
+                        
+                        if has_vectors and len(item) >= 6:
+                            i_val, j_val, k_val = item[3], item[4], item[5]
+                            vectors.append([i_val, j_val, k_val])
+                        
+                        if has_comments and len(item) >= 7:
+                            comments.append(str(item[6]))
+                        else:
+                            comments.append(f"{labels[i][:2]}{len(points)}")
+                    elif isinstance(item, dict):
+                        # 字典格式支持（备用）
+                        points.append([item['x'], item['y'], item['z']])
+                        if 'i' in item and 'j' in item and 'k' in item:
+                            vectors.append([item['i'], item['j'], item['k']])
+                        comments.append(item.get('comment', f"{labels[i][:2]}{len(points)}"))
+                
+                points = np.array(points)
+                
+                # 绘制点
+                ax.scatter(points[:, 0], points[:, 1], points[:, 2], 
+                          c=colors[i], s=50, alpha=0.8, marker=markers[i], label=labels[i])
+                
+                # 为每个点添加标注（使用comment）
+                for idx, point in enumerate(points):
+                    offset = 0.02 * (np.max(np.abs(points)) if points.size > 0 else 0.1)
+                    comment_text = comments[idx] if idx < len(comments) else f"{idx+1}"
+                    # 截断过长的注释
+                    if len(comment_text) > 20:
+                        comment_text = comment_text[:17] + "..."
+                    ax.text(point[0] + offset, point[1] + offset, point[2] + offset,
+                           comment_text, fontsize=8, color=colors[i], alpha=0.7)
+                
+                # 如果有向量数据，绘制向量
+                if has_vectors and vectors:
+                    vectors = np.array(vectors)
+                    vector_scale = 1.0  # 向量缩放因子
+                    for point, vector in zip(points, vectors):
+                        # 计算向量终点
+                        end_point = point + vector * vector_scale
+                        # 绘制线段
+                        ax.plot([point[0], end_point[0]], 
+                               [point[1], end_point[1]], 
+                               [point[2], end_point[2]], 
+                               c=colors[i], linewidth=2, alpha=0.7)
+                        # 在箭头末端添加小箭头
+                        ax.quiver(point[0], point[1], point[2],
+                                 vector[0], vector[1], vector[2],
+                                 length=vector_scale, color=colors[i], alpha=0.7, arrow_length_ratio=0.3)
+                
+                all_points.extend(points)
         
-        ax.set_xlabel('X Axis')
-        ax.set_ylabel('Y Axis')
-        ax.set_zlabel('Z Axis')
-        ax.set_title('Coordinate Mapping Verification - Multiple Point Sets')
+        ax.set_xlabel('X Axis (mm)')
+        ax.set_ylabel('Y Axis (mm)')
+        ax.set_zlabel('Z Axis (mm)')
+        ax.set_title('Coordinate Mapping Verification - 5 Axis Machining')
         
         # 自动调整视图
         if all_points:
@@ -101,6 +168,9 @@ def visualize_multiple_point_sets(data_dict):
                 np.max(all_points[:, 1]) - np.min(all_points[:, 1]),
                 np.max(all_points[:, 2]) - np.min(all_points[:, 2])
             ) / 2.0
+            
+            if max_range < 0.1:
+                max_range = 1.0
             
             margin = max_range * 0.1
             max_range += margin
@@ -229,7 +299,7 @@ def main():
         filename = sys.argv[1]
         visualize_points_and_vectors(filename)
     else:
-        # New mode: read JSON data from stdin for multi-point-set visualization
+        # read JSON data from stdin for multi-point-set visualization
         try:
             input_data = sys.stdin.read()
             data_dict = json.loads(input_data)

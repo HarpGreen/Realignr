@@ -36,11 +36,19 @@ struct ProcessPoint {
     double x, y, z;
     double i, j, k;                 //加工方向单位向量
     double duration;                //加工时间，由用户在软件之外自行算出，比如excel
+    // double diameter;                //加工直径，后续可以根据这个值来调整加工点位置，确保刀具中心在正确的位置
     int processMethodSelection;     //选择用户输入的加工过程，<0代表没有加工过程，
                                     //==0代表默认G04等待，>1的数表示选择用户输入的内容
     QString comment;                //备注，保留在点加工后面，以便在加工过程中判断是哪个点
 };
 
+struct ProcessPointJoint {
+    double pos[5];
+    double duration;                //加工时间，由用户在软件之外自行算出，比如excel
+    int processMethodSelection;     //选择用户输入的加工过程，<0代表没有加工过程，
+                                    //==0代表默认G04等待，>1的数表示选择用户输入的内容
+    QString comment;               // 注释部分
+};
 
 
 class MainWindow : public QMainWindow
@@ -132,13 +140,15 @@ private:
     // 机床轴标签解析
     bool parseAxisLabel(const QString& raw, OM5A_Axis_Property &prop);
 
-    // 数据
+    // 用户输入数据
     std::vector<Point3D> modelPoints;
-    std::vector<Point3D> actualPoints;               // C转盘坐标系下的实际点
     std::vector<MachinePoint5D> actualMachinePoints; // 用户输入的5轴机床实际坐标
-    std::vector<ProcessPoint> processPoints;
+    std::vector<ProcessPoint> processPoints;         // 用户输入的加工点坐标和加工信息
+    // 处理后数据
+    std::vector<Point3D> actualPoints;               // C转盘坐标系下的实际点
+    std::vector<ProcessPointJoint> processPointJoints; // 加工点关节信息
 
-    // 转换矩阵
+    // 转换矩阵（在五轴情况下指的是工件/模型坐标系转换到C转盘坐标系下的转换矩阵，即WP2C）
     LeastSquaresSolver::TransformationMatrix transformationMatrix;
 
     // 工具函数
@@ -152,15 +162,9 @@ private:
     bool importMachinePointsFromCSV(const QString& fileName, QTextEdit* textEdit, std::vector<MachinePoint5D>& points);
     bool importProcessPointsFromCSV(const QString& fileName);
 
-    // 可视化
-    virtual bool visualizeProcessPoints() = delete;
-
     // Gcode生成
-    QString generateGCode(const std::vector<ProcessPoint>& points);
-    QString convertDirectionToRotation(double i, double j, double k);
-
-    // 五轴变换
-    bool machine2WorkpieceTransformation(const Point3D& machinePoint, const Point3D& direction, const OM5A_Rotation_Property& rotationProps, Point3D& workpiecePoint, Point3D& workpieceDirection);
+    QString generateGCode(const std::vector<ProcessPoint>& points); // 生成G代码，同时更新处理后的加工点坐标到processPointsAfter中
+    QString generateGCodeLine(const ProcessPointJoint& joint);
 };
 
 #endif // MAINWINDOW_H

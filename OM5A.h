@@ -4,15 +4,9 @@
 #include <string>
 #include "../lib/eigen-5.0.0/Eigen/Dense"
 
-#ifdef PI
-#undef PI
-#endif
 #define PI      3.14159265358979323846
-
-#ifdef TO_RAD
-#undef TO_RAD
-#endif
 #define TO_RAD (PI/180.)
+#define TO_RAD_INV (180./PI)
 
 // 单轴属性定义
 typedef struct OM5A_Axis_Property
@@ -71,6 +65,7 @@ public:
     double pos[5]; // 5轴位置，单位mm或者度，线性轴是mm，旋转轴是度
 
     void setPos(double *newPos); // 更新轴位置，输入是一个长度为5的数组，单位同上
+    void getPos(double *outPos); // 获取轴位置，输出是一个长度为5的数组，单位同上
 
 public:
 /*仿射变换*/
@@ -89,6 +84,13 @@ public:
     std::vector<Eigen::Affine3d> getC2T(); // 获取C2T矩阵组，是T2C的逆矩阵并且顺序相反
 
     Eigen::Vector3d currentPosToC(); // 将当前 pos[0..2] 位置按当前 pos[3..4] 变换到 C 轴盘坐标系
+
+    /* 根据C轴盘坐标系下的射线（起点+方向）计算机床位置
+       输入: rayOrigin_c - C轴盘坐标系下的射线起点 (mm)
+             rayDir_c   - C轴盘坐标系下的射线方向 (单位向量)
+       输出: 更新 pos[5] 使刀具位于起点且Z轴指向射线方向
+       返回: 0 成功, -1 失败（如奇异点） */
+    int computePoseFromRayInC(const Eigen::Vector3d& rayOrigin_c, const Eigen::Vector3d& rayDir_c);
 
 /*构*/
     OM5A(OM5A_Mill_Type type, 
