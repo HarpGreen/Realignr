@@ -19,7 +19,7 @@
 #include <QFileDialog>
 #include <vector>
 
-constexpr int VERSION[3] = {1,0,0};
+constexpr int VERSION[3] = {1,1,0};
 
 //点定义
 using Point3D = LeastSquaresSolver::Point3D;
