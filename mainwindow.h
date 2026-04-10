@@ -26,7 +26,7 @@ using Point3D = LeastSquaresSolver::Point3D;
 
 // 5轴机床实际点类型，用于输入的机床坐标(x,y,z,a,c)
 struct MachinePoint5D {
-    double x, y, z, a, c;
+    double x, y, z, a, c; // 对于xyzbc轴的机床，a和c分别对应b和c轴的角度；对于xyzab轴的机床，a和c分别对应a和b轴的角度
     MachinePoint5D(double x = 0, double y = 0, double z = 0, double a = 0, double c = 0)
         : x(x), y(y), z(z), a(a), c(c) {}
 };

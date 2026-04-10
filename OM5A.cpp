@@ -31,12 +31,12 @@ int OM5A::updateT2C()
         
         // T2C[0]: 从机床坐标系到摇篮旋转中心
         T2C[0] = Eigen::Affine3d::Identity();
-        T2C[0].translation() = Eigen::Vector3d(rotationProps.Cx, rotationProps.Cy, rotationProps.Cz);
+        T2C[0].translation() = Eigen::Vector3d(-rotationProps.Cx, -rotationProps.Cy, -rotationProps.Cz);
         T2C[0].rotate(Eigen::AngleAxisd(pos[3] * TO_RAD, Eigen::Vector3d::UnitX())); // A轴旋转
 
         // T2C[1]: 从摇篮旋转中心到转盘旋转中心
         T2C[1] = Eigen::Affine3d::Identity();
-        T2C[1].translation() = Eigen::Vector3d(rotationProps.Dx, rotationProps.Dy, rotationProps.Dz);
+        T2C[1].translation() = Eigen::Vector3d(-rotationProps.Dx, -rotationProps.Dy, -rotationProps.Dz);
         T2C[1].rotate(Eigen::AngleAxisd(pos[4] * TO_RAD, Eigen::Vector3d::UnitZ())); // C轴旋转
 
         // T2C[2]: 恒等变换，从转盘中心到转台坐标系（通常是1）
@@ -51,13 +51,13 @@ int OM5A::updateT2C()
         
         // T2C[0]: 从机床坐标系到摇篮旋转中心
         T2C[0] = Eigen::Affine3d::Identity();
-        T2C[0].translation() = Eigen::Vector3d(rotationProps.Cx, rotationProps.Cy, rotationProps.Cz);
-        T2C[0].rotate(Eigen::AngleAxisd(pos[3] * TO_RAD, Eigen::Vector3d::UnitY())); // B轴旋转
+        T2C[0].translation() = Eigen::Vector3d(-rotationProps.Cx, -rotationProps.Cy, -rotationProps.Cz);
+        T2C[0].rotate(Eigen::AngleAxisd(-pos[3] * TO_RAD, Eigen::Vector3d::UnitY())); // B轴旋转
 
         // T2C[1]: 从摇篮旋转中心到转盘旋转中心
         T2C[1] = Eigen::Affine3d::Identity();
-        T2C[1].translation() = Eigen::Vector3d(rotationProps.Dx, rotationProps.Dy, rotationProps.Dz);
-        T2C[1].rotate(Eigen::AngleAxisd(pos[4] * TO_RAD, Eigen::Vector3d::UnitZ())); // C轴旋转
+        T2C[1].translation() = Eigen::Vector3d(-rotationProps.Dx, -rotationProps.Dy, -rotationProps.Dz);
+        T2C[1].rotate(Eigen::AngleAxisd(-pos[4] * TO_RAD, Eigen::Vector3d::UnitZ())); // C轴旋转
 
         // T2C[2]: 恒等变换，从转盘中心到转台坐标系（通常是1）
         T2C[2] = Eigen::Affine3d::Identity();

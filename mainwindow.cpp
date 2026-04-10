@@ -466,10 +466,11 @@ void MainWindow::onVisualizeClicked()
         // 参数:
         // data_dict: 字典，包含不同点集的数据
         //        格式: {
-        //            'model_points': [[x,y,z], ...],
+        //            'model_points': [[x,y,z], ...],           # 转换后的模型点
+        //            'model_points_before': [[x,y,z], ...],    # 转换前的模型点
         //            'actual_points': [[x,y,z], ...], 
-        //            'process_points_before': [[x,y,z], ...],
-        //            'process_points_after': [[x,y,z], ...]
+        //            'process_points': [[x,y,z,i,j,k,comment], ...],  # 转换后的加工点
+        //            'process_points_before': [[x,y,z,i,j,k,comment], ...]  # 转换前的加工点
         //        }
 
         // 准备数据
@@ -488,16 +489,16 @@ void MainWindow::onVisualizeClicked()
         }
         dataObj["model_points"] = modelArray;
 
-        // // model_points
-        // QJsonArray modelArray;
-        // for (const auto& point : modelPoints) {
-        //     QJsonArray pointArray;
-        //     pointArray.append(point.x);
-        //     pointArray.append(point.y);
-        //     pointArray.append(point.z);
-        //     modelArray.append(pointArray);
-        // }
-        // dataObj["model_points"] = modelArray;
+        // model_points_before - 转换前的模型点
+        QJsonArray modelArrayBefore;
+        for (const auto& point : modelPoints) {
+            QJsonArray pointArray;
+            pointArray.append(point.x);
+            pointArray.append(point.y);
+            pointArray.append(point.z);
+            modelArrayBefore.append(pointArray);
+        }
+        dataObj["model_points_before"] = modelArrayBefore;
 
         // actual_points
         QJsonArray actualArray;
@@ -516,7 +517,7 @@ void MainWindow::onVisualizeClicked()
         };
 
         // process_points - 转换后的坐标（WP2C转换后的点）
-        QJsonArray processBeforeArray;
+        QJsonArray processArray;
         for (const auto& processPoint : processPoints) {
             // 将加工点通过转换矩阵变换到C盘坐标系
             Point3D transformedProcessPoint = LeastSquaresSolver::transformPoint(transformationMatrix,
@@ -531,21 +532,20 @@ void MainWindow::onVisualizeClicked()
             pointArray.append(round3(processPoint.duration));
             pointArray.append(processPoint.processMethodSelection);
             pointArray.append(processPoint.comment);
-            processBeforeArray.append(pointArray);
+            processArray.append(pointArray);
         }
-        dataObj["process_points"] = processBeforeArray;
-        // // process_points_after
-        // QJsonArray processAfterArray;
-        // for (const auto& processPoint : processPoints) {
-        //     Point3D transformed = LeastSquaresSolver::transformPoint(transformationMatrix,
-        //                                                             Point3D(processPoint.x, processPoint.y, processPoint.z));
-        //     QJsonArray pointArray;
-        //     pointArray.append(round3(transformed.x));
-        //     pointArray.append(round3(transformed.y));
-        //     pointArray.append(round3(transformed.z));
-        //     processAfterArray.append(pointArray);
-        // }
-        // dataObj["process_points_after"] = processAfterArray;
+        dataObj["process_points"] = processArray;
+        
+        // process_points_before
+        QJsonArray processArrayBefore;
+        for (const auto& processPoint : processPoints) {
+            QJsonArray pointArray;
+            pointArray.append(round3(processPoint.x));
+            pointArray.append(round3(processPoint.y));
+            pointArray.append(round3(processPoint.z));
+            processArrayBefore.append(pointArray);
+        }
+        dataObj["process_points_before"] = processArrayBefore;
 
 
 
@@ -553,33 +553,42 @@ void MainWindow::onVisualizeClicked()
         QJsonDocument doc(dataObj);
         QString jsonData = doc.toJson(QJsonDocument::Compact);
 
-        // 调用Python脚本
+
+
+        // 统一资源查找：优先查找exe，回退到py脚本
         const QString appDir = QCoreApplication::applicationDirPath();
-        const QStringList pythonScriptCandidates = {
+        QString visualizerPath;
+        
+        QStringList candidates = {
+            // exe 优先
+            QDir(appDir).filePath("visualize.exe"),
+            QDir(appDir).filePath("visualize/visualize.exe"),
+            QDir(appDir).filePath("../visualize/visualize.exe"),
+            QDir(appDir).filePath("../../visualize/visualize.exe"),
+            // 回退到 py 脚本
             QDir(appDir).filePath("visualize/visualize.py"),
             QDir(appDir).absoluteFilePath("../visualize/visualize.py"),
             QDir(appDir).absoluteFilePath("../../visualize/visualize.py"),
             QDir(appDir).absoluteFilePath("../../../visualize/visualize.py")
         };
 
-        QString pythonScript;
-        for (const QString &candidate : pythonScriptCandidates) {
+        for (const QString &candidate : candidates) {
             if (QFileInfo(candidate).exists()) {
-                pythonScript = candidate;
+                visualizerPath = candidate;
                 break;
             }
         }
 
-        if (pythonScript.isEmpty()) {
-            QString err = QString("找不到 Python 脚本: %1").arg(pythonScriptCandidates.join(", "));
+        if (visualizerPath.isEmpty()) {
+            QString err = QString("找不到可视化程序，搜索路径: %1").arg(candidates.join(", "));
             QMessageBox::critical(this, "可视化错误", err);
             appendInfoMessage(err);
             return;
         }
 
-        QFileInfo scriptInfo(pythonScript);
+        QFileInfo fileInfo(visualizerPath);
         QProcess *process = new QProcess(this);
-        process->setWorkingDirectory(scriptInfo.absolutePath());
+        process->setWorkingDirectory(fileInfo.absolutePath());
         process->setProcessChannelMode(QProcess::SeparateChannels);
         process->setProperty("stderrOutput", QString());
 
@@ -594,27 +603,34 @@ void MainWindow::onVisualizeClicked()
             QString stderrOutput = process->property("stderrOutput").toString();
             QString stdoutOutput = QString::fromUtf8(process->readAllStandardOutput());
             if (exitStatus == QProcess::NormalExit && exitCode == 0) {
-                appendInfoMessage("可视化脚本执行成功。");
+                appendInfoMessage("可视化程序执行成功。");
             } else {
                 QString detail = stderrOutput.isEmpty() ? stdoutOutput : stderrOutput;
                 if (detail.isEmpty()) {
                     detail = process->errorString();
                 }
                 QMessageBox::warning(this, "可视化错误",
-                                     QString("Python脚本执行失败: %1").arg(detail));
+                                     QString("可视化程序执行失败: %1").arg(detail));
                 appendInfoMessage(QString("可视化失败: %1").arg(detail));
             }
             process->deleteLater();
         });
 
-        // 启动进程，将JSON数据通过stdin传递
-        process->start("python", QStringList() << pythonScript);
+        // 根据扩展名决定启动方式
+        if (visualizerPath.endsWith(".exe", Qt::CaseInsensitive)) {
+            // 直接启动exe
+            process->start(visualizerPath, QStringList());
+        } else {
+            // 启动python运行脚本
+            process->start("python", QStringList() << visualizerPath);
+        }
+        
         if (process->waitForStarted(3000)) {
             process->write(jsonData.toUtf8());
             process->closeWriteChannel();
         } else {
             QString err = process->errorString();
-            QMessageBox::critical(this, "错误", QString("无法启动Python进程: %1").arg(err));
+            QMessageBox::critical(this, "错误", QString("无法启动可视化程序: %1").arg(err));
             appendInfoMessage(QString("可视化启动失败: %1").arg(err));
             process->deleteLater();
         }
@@ -667,23 +683,23 @@ std::vector<MachinePoint5D> MainWindow::parseMachinePointsFromText(const QString
         QString cleaned = cleanCoordinateString(line);
         QStringList coords = cleaned.split(',', Qt::SkipEmptyParts);
 
-        if (coords.size() >= 3) {
+        if (coords.size() >= 5) {
             bool conversionOk = true;
             MachinePoint5D point;
 
-            point.x = coords[0].toDouble(&conversionOk);
+            point.x = coords[0].toDouble(&conversionOk) * (mill_p->axes[0].isReversed ? -1 : 1);
             if (!conversionOk) continue;
 
-            point.y = coords[1].toDouble(&conversionOk);
+            point.y = coords[1].toDouble(&conversionOk) * (mill_p->axes[1].isReversed ? -1 : 1);
             if (!conversionOk) continue;
 
-            point.z = coords[2].toDouble(&conversionOk);
+            point.z = coords[2].toDouble(&conversionOk) * (mill_p->axes[2].isReversed ? -1 : 1);
             if (!conversionOk) continue;
 
-            // 如果输入中包含角度值，则使用它们；否则默认 0
-            point.a = (coords.size() >= 4) ? coords[3].toDouble(&conversionOk) : 0.0;
+            point.a = coords[3].toDouble(&conversionOk) * (mill_p->axes[3].isReversed ? -1 : 1);
             if (!conversionOk) continue;
-            point.c = (coords.size() >= 5) ? coords[4].toDouble(&conversionOk) : 0.0;
+
+            point.c = coords[4].toDouble(&conversionOk) * (mill_p->axes[4].isReversed ? -1 : 1);
             if (!conversionOk) continue;
 
             points.push_back(point);
@@ -838,7 +854,10 @@ bool MainWindow::importPointsFromCSV(const QString& fileName, QTextEdit* textEdi
             if (!conversionOk) continue;
 
             importedPoints.push_back(point);
-            displayLines.append(QString("%1,%2,%3").arg(point.x).arg(point.y).arg(point.z));
+            displayLines.append(QString("%1,%2,%3")
+                .arg(QString::number(point.x, 'f', 9))
+                .arg(QString::number(point.y, 'f', 9))
+                .arg(QString::number(point.z, 'f', 9)));
             successCount++;
         }
     }
@@ -899,11 +918,13 @@ bool MainWindow::importMachinePointsFromCSV(const QString& fileName, QTextEdit* 
         QString cleanedLine = cleanCoordinateString(line);
         QStringList coords = cleanedLine.split(',', Qt::SkipEmptyParts);
 
-        if (coords.size() >= 3) {
+        if (coords.size() >= 5) {
             bool conversionOk = true;
             MachinePoint5D point;
 
-            point.x = coords[0].toDouble(&conversionOk);
+            // 导入的时候是把csv变成数字模拟人输入在框里，所以这一步是不用根据机床轴反向转换的，
+            // 直接照原样放进去
+            point.x = coords[0].toDouble(&conversionOk); 
             if (!conversionOk) continue;
 
             point.y = coords[1].toDouble(&conversionOk);
@@ -912,15 +933,21 @@ bool MainWindow::importMachinePointsFromCSV(const QString& fileName, QTextEdit* 
             point.z = coords[2].toDouble(&conversionOk);
             if (!conversionOk) continue;
 
-            point.a = (coords.size() >= 4) ? coords[3].toDouble(&conversionOk) : 0.0;
+            point.a = (coords.size() >= 4) ? 
+                coords[3].toDouble(&conversionOk) : 0.0;
             if (!conversionOk) continue;
 
-            point.c = (coords.size() >= 5) ? coords[4].toDouble(&conversionOk) : 0.0;
+            point.c = (coords.size() >= 5) ? 
+                coords[4].toDouble(&conversionOk) : 0.0;
             if (!conversionOk) continue;
 
             importedPoints.push_back(point);
             displayLines.append(QString("%1,%2,%3,%4,%5")
-                .arg(point.x).arg(point.y).arg(point.z).arg(point.a).arg(point.c));
+                .arg(QString::number(point.x, 'f', 9))
+                .arg(QString::number(point.y, 'f', 9))
+                .arg(QString::number(point.z, 'f', 9))
+                .arg(QString::number(point.a, 'f', 9))
+                .arg(QString::number(point.c, 'f', 9)));
             successCount++;
         }
     }
@@ -1007,7 +1034,15 @@ bool MainWindow::importProcessPointsFromCSV(const QString& fileName)
                     // 构建显示行（保持原始格式，只清理坐标部分）
                     QString displayLine;
                     displayLine += QString("%1,%2,%3,%4,%5,%6,%7,%8,%9")
-                                       .arg(x).arg(y).arg(z).arg(a).arg(b).arg(c).arg(d).arg(s).arg(cmt);
+                                       .arg(QString::number(x, 'f', 9))
+                                       .arg(QString::number(y, 'f', 9))
+                                       .arg(QString::number(z, 'f', 9))
+                                       .arg(QString::number(a, 'f', 9))
+                                       .arg(QString::number(b, 'f', 9))
+                                       .arg(QString::number(c, 'f', 9))
+                                       .arg(QString::number(d, 'f', 9))
+                                       .arg(QString::number(s))
+                                       .arg(cmt);
 
                     // 添加附加信息（如果存在）
                     for (int j = 9; j < parts.size(); ++j) {
@@ -1080,11 +1115,6 @@ QString MainWindow::generateGCode(
         line += QString(" ; (%1) %2").arg(i + 1).arg(point.comment);
 
         gcodeLines.append(line);
-        
-        // 加工时间（使用G04）
-        if (point.duration > 0 && point.processMethodSelection == 1) {
-            gcodeLines.append(QString("G04 P%1").arg(point.duration, 0, 'f', 1));
-        }
     }
 
     // 文件尾

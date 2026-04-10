@@ -15,11 +15,14 @@ def visualize_multiple_point_sets(data_dict):
     参数:
     data_dict: 字典，包含不同点集的数据
                格式: {
-                   'model_points': [[x,y,z], ...],
+                   'model_points': [[x,y,z], ...],           # 转换后的模型点
+                   'model_points_before': [[x,y,z], ...],    # 转换前的模型点
                    'actual_points': [[x,y,z], ...], 
-                   'process_points': [[x,y,z,i,j,k,comment], ...]  # comment为字符串
+                   'process_points': [[x,y,z,i,j,k,comment], ...],  # 转换后的加工点
+                   'process_points_before': [[x,y,z,i,j,k,comment], ...]  # 转换前的加工点
                }
     """
+    
     
     try:
         fig = plt.figure(figsize=(14, 10))
@@ -57,13 +60,13 @@ def visualize_multiple_point_sets(data_dict):
             ax.set_zlim(zcenter - new_zrange/2, zcenter + new_zrange/2)
 
             fig.canvas.draw_idle()
-
+        
+        colors = ['blue', 'cyan', 'red', 'green', 'lime']
+        labels = ['Model points (after)', 'Model points (before)', 'Actual points (C system)', 
+                  'Process points (after)', 'Process points (before)']
+        markers = ['o', 'o', 's', '^', '^']
+        keys = ['model_points', 'model_points_before', 'actual_points', 'process_points', 'process_points_before']
         fig.canvas.mpl_connect('scroll_event', on_scroll)
-
-        colors = ['blue', 'red', 'green']
-        labels = ['Model points (transformed)', 'Actual points (C system)', 'Process points']
-        markers = ['o', 's', '^']
-        keys = ['model_points', 'actual_points', 'process_points']
         
         all_points = []
         
